@@ -28,7 +28,7 @@ def main(argv: list[str] | None = None) -> None:
 
     serve_parser = commands.add_parser("serve", help="run the scoring service")
     serve_parser.add_argument("--host", default="0.0.0.0")
-    serve_parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
+    serve_parser.add_argument("--port", type=int, default=os.environ.get("PORT", "8000"))
 
     args = parser.parse_args(argv)
     if args.command == "serve":

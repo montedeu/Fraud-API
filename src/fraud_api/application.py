@@ -160,8 +160,9 @@ def _one_of(allowed: Sequence[float], name: str):
 
 Number = Annotated[float, Field(allow_inf_nan=False)]
 NonNegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
-MaybeMissing = Annotated[float, Field(ge=0, allow_inf_nan=False)] | None
-Flag = Literal[0, 1]
+MaybeMissing = NonNegative | None
+# Not Literal[0, 1]: that accepts JSON true and false even in strict mode.
+Flag = Annotated[int, Field(strict=True, ge=0, le=1)]
 
 
 class ApplicationIn(BaseModel):

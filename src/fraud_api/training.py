@@ -8,13 +8,7 @@ import numpy as np
 import pandas as pd
 
 from fraud_api import evaluation
-from fraud_api.application import (
-    CATEGORIES,
-    EXAMPLE_APPLICATION,
-    FIELDS,
-    Dataset,
-    read_dataset,
-)
+from fraud_api.application import CATEGORIES, FIELDS, Dataset, read_dataset
 from fraud_api.data import DATA_DIR, FILE_NAME, SHA256, verify
 from fraud_api.features import prepare
 from fraud_api.model_version import MODEL_DIR, ModelVersion, write
@@ -93,6 +87,32 @@ def reference_applications() -> list[dict[str, Any]]:
     missing, and negative ``credit_risk_score`` and ``velocity_6h``. The last one carries
     the strongest fraud signals in the data, so that it is sent to Review.
     """
+    base: dict[str, Any] = {
+        "income": 0.6,
+        "name_email_similarity": 0.5,
+        "prev_address_months_count": 20,
+        "current_address_months_count": 60,
+        "customer_age": 30,
+        "days_since_request": 0.02,
+        "intended_balcon_amount": 10.5,
+        "zip_count_4w": 1500,
+        "velocity_6h": 5000.0,
+        "velocity_24h": 4800.0,
+        "velocity_4w": 5000.0,
+        "bank_branch_count_8w": 10,
+        "date_of_birth_distinct_emails_4w": 8,
+        "credit_risk_score": 120,
+        "email_is_free": 1,
+        "phone_home_valid": 0,
+        "phone_mobile_valid": 1,
+        "bank_months_count": 10,
+        "has_other_cards": 0,
+        "proposed_credit_limit": 500.0,
+        "foreign_request": 0,
+        "session_length_in_minutes": 5.0,
+        "keep_alive_session": 1,
+        "device_distinct_emails_8w": 1,
+    }
     variations: list[dict[str, Any]] = [
         {},
         {field: None for field in ("prev_address_months_count", "bank_months_count")},
@@ -128,7 +148,7 @@ def reference_applications() -> list[dict[str, Any]]:
     applications = []
     for i, variation in enumerate(variations):
         categories = {field: values[i % len(values)] for field, values in CATEGORIES.items()}
-        application = EXAMPLE_APPLICATION | categories | variation
+        application = base | categories | variation
         applications.append({field: application[field] for field in FIELDS})
     return applications
 

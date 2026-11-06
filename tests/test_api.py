@@ -1,13 +1,14 @@
 """Seam 1: the HTTP API, against the committed Model Version."""
 
 import json
+import shutil
 import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 
 from fraud_api import model_version
-from fraud_api.application import EXAMPLE_APPLICATION, SENTINEL_FIELDS
+from fraud_api.application import EXAMPLE_APPLICATION, FIELDS, SENTINEL_FIELDS, ApplicationIn
 from fraud_api.service import create_app
 
 COMMITTED = model_version.load()
@@ -91,6 +92,8 @@ def test_accepts_negative_credit_risk_score_and_velocity_6h(client):
         {"income": 1.0},
         {"proposed_credit_limit": 750},
         {"email_is_free": 2},
+        {"email_is_free": True},
+        {"keep_alive_session": False},
         {"bank_months_count": -1},
         {"intended_balcon_amount": -3.2},
         {"zip_count_4w": -1},
@@ -125,6 +128,34 @@ def test_rejects_non_finite_numbers(client, value):
     )
 
     assert response.status_code == 422
+
+
+def test_rejections_name_the_field_and_the_rejected_value(client):
+    response = client.post("/predict", json=_with(income=0.65))
+
+    [error] = response.json()["detail"]
+    assert error["loc"] == ["body", "income"]
+    assert error["input"] == 0.65
+    assert "income must be one of" in error["ctx"]["error"]
+
+
+def test_the_api_contract_has_exactly_the_application_fields():
+    assert list(ApplicationIn.model_fields) == FIELDS
+
+
+def test_refuses_to_start_with_a_model_version_built_on_another_contract(tmp_path):
+    copy = tmp_path / "model"
+    shutil.copytree(model_version.MODEL_DIR, copy)
+    metadata_path = copy / model_version.METADATA_FILE
+    metadata = json.loads(metadata_path.read_text())
+    metadata["categories"]["device_os"] = ["linux", "windows"]
+    metadata["model_version"] = model_version.model_version_id(
+        (copy / model_version.MODEL_FILE).read_text(), metadata
+    )
+    metadata_path.write_text(json.dumps(metadata))
+
+    with pytest.raises(RuntimeError, match="API contract"), TestClient(create_app(copy)):
+        pass
 
 
 def test_health_returns_the_model_version(client):

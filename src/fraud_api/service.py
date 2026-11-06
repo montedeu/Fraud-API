@@ -1,11 +1,12 @@
 """The scoring service: POST an Application, get a Fraud Score and a Decision."""
 
+import math
 import os
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -14,7 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from fraud_api import model_version
-from fraud_api.application import ApplicationIn, to_frame
+from fraud_api.application import CATEGORIES, FIELDS, ApplicationIn, to_frame
 
 MODEL_DIR_ENV = "FRAUD_API_MODEL_DIR"
 
@@ -38,7 +39,12 @@ def create_app(model_dir: Path | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         directory = model_dir or Path(os.environ.get(MODEL_DIR_ENV, model_version.MODEL_DIR))
-        app.state.model = model_version.load(directory)
+        model = model_version.load(directory)
+        # The API validates against the code's contract; a Model Version built on another
+        # contract would fail on Applications the API accepted.
+        if model.metadata["features"] != FIELDS or model.metadata["categories"] != CATEGORIES:
+            raise RuntimeError(f"Model Version {model.id} does not match the API contract")
+        app.state.model = model
         yield
 
     app = FastAPI(
@@ -49,10 +55,9 @@ def create_app(model_dir: Path | None = None) -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def invalid_application(request: Request, exc: RequestValidationError) -> JSONResponse:
-        # The default handler echoes each rejected value back, and a NaN or Infinity the
-        # JSON parser let through can't be encoded again, which turned a 422 into a 500.
-        errors = [{k: v for k, v in e.items() if k != "input"} for e in exc.errors()]
-        return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
+        return JSONResponse(
+            status_code=422, content={"detail": jsonable_encoder(_encodable(exc.errors()))}
+        )
 
     @app.post("/predict")
     def predict(application: ApplicationIn, request: Request) -> Scored:
@@ -70,6 +75,23 @@ def create_app(model_dir: Path | None = None) -> FastAPI:
         return Health(status="ok", model_version=request.app.state.model.id)
 
     return app
+
+
+def _encodable(errors: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Validation errors that JSON can carry. The default handler echoes each rejected
+    value, and a NaN or Infinity (which the JSON parser lets through) can't be encoded
+    back, which turned a 422 into a 500. Exceptions in ``ctx`` become their message."""
+    encodable = []
+    for error in errors:
+        error = dict(error)
+        if isinstance(error.get("input"), float) and not math.isfinite(error["input"]):
+            error["input"] = str(error["input"])
+        if "ctx" in error:
+            error["ctx"] = {
+                k: str(v) if isinstance(v, Exception) else v for k, v in error["ctx"].items()
+            }
+        encodable.append(error)
+    return encodable
 
 
 app = create_app()
