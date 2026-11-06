@@ -18,6 +18,8 @@ from fraud_api import model_version, protection
 from fraud_api.application import CATEGORIES, FIELDS, ApplicationIn, to_frame
 
 MODEL_DIR_ENV = "FRAUD_API_MODEL_DIR"
+RATE_LIMIT_ENV = "FRAUD_API_RATE_LIMIT_PER_MINUTE"
+MAX_BODY_BYTES_ENV = "FRAUD_API_MAX_BODY_BYTES"
 
 
 class Scored(BaseModel):
@@ -35,16 +37,21 @@ class Health(BaseModel):
 def create_app(
     model_dir: Path | None = None,
     *,
-    rate_limit_per_minute: int = protection.RATE_LIMIT_PER_MINUTE,
-    max_body_bytes: int = protection.MAX_BODY_BYTES,
+    rate_limit_per_minute: int | None = None,
+    max_body_bytes: int | None = None,
 ) -> FastAPI:
     """The FastAPI app. The Model Version is loaded once, at startup, from ``model_dir``,
     else from ``$FRAUD_API_MODEL_DIR``, else from ``model/``.
 
     ``/predict`` is limited to ``rate_limit_per_minute`` requests per client; ``/health``
-    is never limited. Request bodies over ``max_body_bytes`` get a 413.
+    is never limited. Request bodies over ``max_body_bytes`` get a 413. Each limit comes
+    from its argument, else from its environment variable, else from the default.
     """
-    rate_limit = protection.RateLimiter(rate_limit_per_minute, window=60.0)
+    rate_limit = protection.RateLimiter(
+        _setting(rate_limit_per_minute, RATE_LIMIT_ENV, protection.RATE_LIMIT_PER_MINUTE),
+        window=60.0,
+    )
+    max_body_bytes = _setting(max_body_bytes, MAX_BODY_BYTES_ENV, protection.MAX_BODY_BYTES)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -86,6 +93,12 @@ def create_app(
         return Health(status="ok", model_version=request.app.state.model.id)
 
     return app
+
+
+def _setting(value: int | None, env: str, default: int) -> int:
+    if value is not None:
+        return value
+    return int(os.environ.get(env) or default)
 
 
 def _encodable(errors: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -105,3 +105,29 @@ def test_a_body_under_the_cap_is_parsed_as_usual(client):
     response = client.post("/predict", json=EXAMPLE_APPLICATION | {"unexpected_field": 1})
 
     assert response.status_code == 422
+
+
+def test_a_limit_below_one_is_refused():
+    with pytest.raises(ValueError):
+        RateLimiter(limit=0)
+
+
+def test_tracks_at_most_max_clients_forgetting_the_least_recent():
+    limiter = RateLimiter(limit=1, window=60.0, clock=lambda: 0.0, max_clients=2)
+    limiter.hit("a")
+    limiter.hit("b")
+    limiter.hit("a")  # a is now the most recent; b the least
+    limiter.hit("c")  # over the cap: b is forgotten
+
+    assert limiter.hit("a") is not None  # a is still tracked, and over its limit
+    assert limiter.hit("b") is None  # b starts afresh
+
+
+def test_limits_can_come_from_the_environment(monkeypatch):
+    monkeypatch.setenv("FRAUD_API_RATE_LIMIT_PER_MINUTE", "1")
+    monkeypatch.setenv("FRAUD_API_MAX_BODY_BYTES", "100")
+
+    with TestClient(create_app()) as client:
+        assert client.post("/predict", json=EXAMPLE_APPLICATION).status_code == 413
+        assert client.post("/predict", content=b"{}").status_code == 422
+        assert client.post("/predict", content=b"{}").status_code == 429
