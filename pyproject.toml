@@ -32,11 +32,9 @@ dev = [
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]
-train = [
+# Only for `fraud-api download`: uv run --group kaggle fraud-api download
+kaggle = [
     "kaggle>=2.2.5",
     # kaggle 2.2.5 imports six without declaring it.
     "six>=1.17.0",
 ]
-
-[tool.uv]
-default-groups = ["dev", "train"]

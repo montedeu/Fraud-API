@@ -1,5 +1,5 @@
 {
-  "model_version": "lgbm-97281f0f29a5",
+  "model_version": "lgbm-310dc2ae057c",
   "threshold": 0.02752570290835611,
   "features": [
     "income",
@@ -463,6 +463,40 @@
         "device_distinct_emails_8w": 1
       },
       "fraud_score": 0.006940033556612261
+    },
+    {
+      "application": {
+        "income": 0.9,
+        "name_email_similarity": 0.05,
+        "prev_address_months_count": null,
+        "current_address_months_count": 10,
+        "customer_age": 60,
+        "days_since_request": 0.02,
+        "intended_balcon_amount": 10.5,
+        "payment_type": "AC",
+        "zip_count_4w": 1500,
+        "velocity_6h": 5000.0,
+        "velocity_24h": 4800.0,
+        "velocity_4w": 5000.0,
+        "bank_branch_count_8w": 10,
+        "date_of_birth_distinct_emails_4w": 2,
+        "employment_status": "CA",
+        "credit_risk_score": 250,
+        "email_is_free": 1,
+        "housing_status": "BA",
+        "phone_home_valid": 0,
+        "phone_mobile_valid": 1,
+        "bank_months_count": null,
+        "has_other_cards": 0,
+        "proposed_credit_limit": 2000.0,
+        "foreign_request": 0,
+        "source": "INTERNET",
+        "session_length_in_minutes": 5.0,
+        "device_os": "windows",
+        "keep_alive_session": 0,
+        "device_distinct_emails_8w": 2
+      },
+      "fraud_score": 0.8149367583704985
     }
   ]
 }

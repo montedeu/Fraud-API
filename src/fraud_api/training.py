@@ -36,7 +36,7 @@ def train(
     training = splits["training"]
     booster = lgb.train(
         params,
-        lgb.Dataset(prepare(training.applications, CATEGORIES), label=training.labels),
+        lgb.Dataset(prepare(training.applications, FIELDS, CATEGORIES), label=training.labels),
         num_boost_round=NUM_BOOST_ROUND,
     )
 
@@ -81,10 +81,11 @@ def split_by_month(dataset: Dataset) -> dict[str, Dataset]:
 
 
 def reference_applications() -> list[dict[str, Any]]:
-    """Ten synthetic Applications for the training/serving skew test.
+    """Eleven synthetic Applications for the training/serving skew test.
 
     Together they use every category value, a missing value in every field that may be
-    missing, and negative ``credit_risk_score`` and ``velocity_6h``.
+    missing, and negative ``credit_risk_score`` and ``velocity_6h``. The last one carries
+    the strongest fraud signals in the data, so that it is sent to Review.
     """
     base: dict[str, Any] = {
         "income": 0.6,
@@ -124,6 +125,25 @@ def reference_applications() -> list[dict[str, Any]]:
         {"keep_alive_session": 0, "phone_home_valid": 1, "phone_mobile_valid": 0},
         {field: None for field in ("prev_address_months_count", "intended_balcon_amount")}
         | {"customer_age": 10, "proposed_credit_limit": 190.0},
+        {
+            "housing_status": "BA",
+            "device_os": "windows",
+            "keep_alive_session": 0,
+            "prev_address_months_count": None,
+            "bank_months_count": None,
+            "current_address_months_count": 10,
+            "credit_risk_score": 250,
+            "proposed_credit_limit": 2000.0,
+            "customer_age": 60,
+            "name_email_similarity": 0.05,
+            "phone_home_valid": 0,
+            "income": 0.9,
+            "payment_type": "AC",
+            "employment_status": "CA",
+            "source": "INTERNET",
+            "device_distinct_emails_8w": 2,
+            "date_of_birth_distinct_emails_4w": 2,
+        },
     ]
     applications = []
     for i, variation in enumerate(variations):
@@ -144,7 +164,7 @@ def _lightgbm_params(seed: int) -> dict[str, Any]:
 
 
 def _score(booster: lgb.Booster, applications: pd.DataFrame) -> np.ndarray:
-    return booster.predict(prepare(applications, CATEGORIES))
+    return booster.predict(prepare(applications, FIELDS, CATEGORIES))
 
 
 def _metrics(split: Dataset, scores: np.ndarray, threshold: float) -> dict[str, float | int]:

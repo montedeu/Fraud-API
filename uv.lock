@@ -121,7 +121,7 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
-train = [
+kaggle = [
     { name = "kaggle" },
     { name = "six" },
 ]
@@ -139,7 +139,7 @@ dev = [
     { name = "pytest", specifier = ">=9.2.0" },
     { name = "ruff", specifier = ">=0.17.4" },
 ]
-train = [
+kaggle = [
     { name = "kaggle", specifier = ">=2.2.5" },
     { name = "six", specifier = ">=1.17.0" },
 ]

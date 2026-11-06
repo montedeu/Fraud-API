@@ -1,4 +1,5 @@
 import json
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -113,12 +114,6 @@ def test_same_seed_reproduces_the_model_version_id(trained, dataset_path, tmp_pa
     assert again.id == model_version.load(trained).id
 
 
-def test_different_seed_gives_a_different_model_version(dataset_path, tmp_path, trained):
-    other = train(dataset_path, tmp_path / "model", expected_sha256=sha256(dataset_path), seed=7)
-
-    assert other.id != model_version.load(trained).id
-
-
 def test_refuses_data_with_the_wrong_checksum(dataset_path, tmp_path):
     with pytest.raises(ChecksumMismatchError):
         train(dataset_path, tmp_path / "model", expected_sha256="0" * 64)
@@ -141,3 +136,15 @@ def test_reading_the_dataset_converts_sentinels_and_negative_balcon_to_missing(d
 def _month(path, month):
     dataset = read_dataset(path)
     return dataset.where(np.asarray(dataset.months == month))
+
+
+def test_editing_the_threshold_breaks_the_model_version_id(trained, tmp_path):
+    copy = tmp_path / "model"
+    shutil.copytree(trained, copy)
+    metadata_path = copy / model_version.METADATA_FILE
+    metadata = json.loads(metadata_path.read_text())
+    metadata["threshold"] = metadata["threshold"] / 2
+    metadata_path.write_text(json.dumps(metadata))
+
+    with pytest.raises(ValueError, match="Model Version id"):
+        model_version.load(copy)

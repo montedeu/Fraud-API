@@ -4,20 +4,22 @@ from collections.abc import Mapping, Sequence
 
 import pandas as pd
 
-from fraud_api.application import FIELDS
 
-
-def prepare(applications: pd.DataFrame, categories: Mapping[str, Sequence[str]]) -> pd.DataFrame:
-    """Model input for ``applications``: one column per Application field, in order.
+def prepare(
+    applications: pd.DataFrame,
+    features: Sequence[str],
+    categories: Mapping[str, Sequence[str]],
+) -> pd.DataFrame:
+    """Model input for ``applications``: one column per feature, in ``features`` order.
 
     Missing values become NaN. Category fields use ``categories`` as their fixed
     category lists, so the same value always gets the same code, whichever
     Applications are prepared together.
     """
-    if missing := set(FIELDS) - set(applications.columns):
+    if missing := set(features) - set(applications.columns):
         raise ValueError(f"Applications are missing fields: {sorted(missing)}")
     columns = {}
-    for field in FIELDS:
+    for field in features:
         values = applications[field]
         if field in categories:
             allowed = list(categories[field])

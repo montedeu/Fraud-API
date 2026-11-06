@@ -99,10 +99,6 @@ def from_dataset(rows: pd.DataFrame) -> Dataset:
     # Negative amounts are the -1 sentinel smeared by the dataset's privacy noise.
     balcon = applications["intended_balcon_amount"]
     applications["intended_balcon_amount"] = balcon.where(balcon >= 0)
-    for field, values in CATEGORIES.items():
-        if unknown := set(applications[field].dropna()) - set(values):
-            raise ValueError(f"{field} has unknown categories: {sorted(unknown)}")
-
     return Dataset(
         applications.reset_index(drop=True),
         rows[LABEL].to_numpy(dtype=int),

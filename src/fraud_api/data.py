@@ -40,16 +40,21 @@ def download(
 ) -> Path:
     """Download ``Base.csv`` into ``directory`` unless a verified copy is already there.
 
-    A downloaded file that fails verification is deleted before the error is raised,
-    so a corrupted file never stays behind looking usable.
+    An existing copy that fails verification is replaced. A download that fails, or
+    fails verification, is deleted before the error is raised, so a partial or corrupted
+    file never stays behind looking usable.
     """
     path = directory / FILE_NAME
     if path.exists():
-        verify(path, expected_sha256)
-        return path
+        try:
+            verify(path, expected_sha256)
+            return path
+        except ChecksumMismatchError:
+            print(f"{path} failed verification; downloading it again")
+            path.unlink()
     directory.mkdir(parents=True, exist_ok=True)
-    (fetch or _fetch_from_kaggle)(directory)
     try:
+        (fetch or _fetch_from_kaggle)(directory)
         verify(path, expected_sha256)
     except BaseException:
         path.unlink(missing_ok=True)
