@@ -88,6 +88,28 @@ def test_threshold_gives_5_percent_fpr_on_the_validation_month(trained, dataset_
     assert fpr <= 0.05
 
 
+def test_metadata_reports_both_baselines_on_every_split(trained):
+    baselines = model_version.load(trained).metadata["baselines"]
+
+    assert set(baselines) == {"logistic_regression", "credit_risk_score_rule"}
+    for name, baseline in baselines.items():
+        assert baseline["settings"], name
+        assert baseline["metrics"].keys() == {"training", "validation", "test"}, name
+        for split in baseline["metrics"].values():
+            assert split.keys() >= REQUIRED_METRICS, name
+
+
+@pytest.mark.parametrize("model", ["lightgbm", "logistic_regression", "credit_risk_score_rule"])
+def test_each_model_threshold_gives_5_percent_fpr_on_the_validation_month(trained, model):
+    metadata = model_version.load(trained).metadata
+    metrics = (
+        metadata["metrics"] if model == "lightgbm" else metadata["baselines"][model]["metrics"]
+    )
+
+    assert metrics["validation"]["fpr_at_threshold"] == pytest.approx(0.05, abs=0.005)
+    assert metrics["validation"]["fpr_at_threshold"] <= 0.05
+
+
 def test_label_fields_and_month_are_not_model_features(trained):
     features = model_version.load(trained).booster.feature_name()
 

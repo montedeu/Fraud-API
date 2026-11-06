@@ -1,7 +1,6 @@
 """Command line: ``fraud-api download``, ``fraud-api train`` and ``fraud-api serve``."""
 
 import argparse
-import json
 import os
 from pathlib import Path
 
@@ -38,5 +37,13 @@ def main(argv: list[str] | None = None) -> None:
     else:
         model = train(args.data, args.output, seed=args.seed)
         print(f"wrote Model Version {model.id} to {args.output}")
-        print(f"Threshold {model.threshold:.6f}")
-        print(json.dumps(model.metadata["metrics"], indent=2))
+        print(f"Threshold {model.threshold:.6f}\n")
+        models = {"lightgbm": model.metadata} | model.metadata["baselines"]
+        print(f"{'Recall@5%FPR':24} {'validation':>10} {'test':>10}")
+        for name, result in models.items():
+            recall = {s: result["metrics"][s]["recall_at_5pct_fpr"] for s in ("validation", "test")}
+            print(f"{name:24} {recall['validation']:10.3f} {recall['test']:10.3f}")
+
+
+if __name__ == "__main__":
+    main()
