@@ -99,40 +99,14 @@
       "fpr_ratio": 0.3240095299513633
     }
   },
-  "comparison": {
-    "lightgbm": {
-      "threshold": 0.02752570290835611,
-      "metrics": {
-        "training": {
-          "applications": 675666,
-          "fraudulent_applications": 6740,
-          "recall_at_5pct_fpr": 0.6992581602373887,
-          "recall_at_threshold": 0.7317507418397626,
-          "fpr_at_threshold": 0.06060162110607152,
-          "pr_auc": 0.27106656077933905,
-          "fpr_ratio": 0.28600548606363335
-        },
-        "validation": {
-          "applications": 119323,
-          "fraudulent_applications": 1411,
-          "recall_at_5pct_fpr": 0.52586817859674,
-          "recall_at_threshold": 0.52586817859674,
-          "fpr_at_threshold": 0.04999491145939344,
-          "pr_auc": 0.15528103160913598,
-          "fpr_ratio": 0.3260457305237634
-        },
-        "test": {
-          "applications": 205011,
-          "fraudulent_applications": 2878,
-          "recall_at_5pct_fpr": 0.5288394718554552,
-          "recall_at_threshold": 0.5625434329395413,
-          "fpr_at_threshold": 0.05947569174751278,
-          "pr_auc": 0.1633563201136212,
-          "fpr_ratio": 0.3240095299513633
-        }
-      }
-    },
+  "baselines": {
     "logistic_regression": {
+      "settings": {
+        "numeric": "median imputation with missing indicators, standard scaling",
+        "categorical": "one-hot with the fixed category lists",
+        "max_iter": 2000,
+        "other_parameters": "scikit-learn defaults"
+      },
       "threshold": 0.028516881883489175,
       "metrics": {
         "training": {
@@ -165,6 +139,9 @@
       }
     },
     "credit_risk_score_rule": {
+      "settings": {
+        "score": "credit_risk_score, higher is riskier"
+      },
       "threshold": 258.00000000000006,
       "metrics": {
         "training": {
@@ -219,7 +196,8 @@
       "verbosity": -1
     },
     "num_boost_round": 100,
-    "lightgbm_version": "4.7.0"
+    "lightgbm_version": "4.7.0",
+    "sklearn_version": "1.9.1"
   },
   "reference_applications": [
     {
