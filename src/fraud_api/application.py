@@ -1,10 +1,13 @@
-"""What an Application is, and how dataset rows become Applications."""
+"""What an Application is, and the two ways in: dataset rows and API payloads."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated, Any, Literal
 
 import numpy as np
 import pandas as pd
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 CATEGORIES: dict[str, list[str]] = {
     "payment_type": ["AA", "AB", "AC", "AD", "AE"],
@@ -57,6 +60,9 @@ FIELDS = [
 ]
 """The 29 fields of an Application, in dataset column order."""
 
+PROPOSED_CREDIT_LIMITS = (190, 200, 210, 490, 500, 510, 990, 1000, 1500, 1900, 2000, 2100)
+"""The only values ``proposed_credit_limit`` takes in the dataset."""
+
 LABEL = "fraud_bool"
 MONTH = "month"
 DROPPED = ("device_fraud_count",)
@@ -104,3 +110,102 @@ def from_dataset(rows: pd.DataFrame) -> Dataset:
         rows[LABEL].to_numpy(dtype=int),
         rows[MONTH].to_numpy(dtype=int),
     )
+
+
+# ── API side ──────────────────────────────────────────────────────────────
+
+EXAMPLE_APPLICATION: dict[str, Any] = {
+    "income": 0.6,
+    "name_email_similarity": 0.5,
+    "prev_address_months_count": 20,
+    "current_address_months_count": 60,
+    "customer_age": 30,
+    "days_since_request": 0.02,
+    "intended_balcon_amount": 10.5,
+    "payment_type": "AA",
+    "zip_count_4w": 1500,
+    "velocity_6h": 5000.0,
+    "velocity_24h": 4800.0,
+    "velocity_4w": 5000.0,
+    "bank_branch_count_8w": 10,
+    "date_of_birth_distinct_emails_4w": 8,
+    "employment_status": "CA",
+    "credit_risk_score": 120,
+    "email_is_free": 1,
+    "housing_status": "BA",
+    "phone_home_valid": 0,
+    "phone_mobile_valid": 1,
+    "bank_months_count": 10,
+    "has_other_cards": 0,
+    "proposed_credit_limit": 500.0,
+    "foreign_request": 0,
+    "source": "INTERNET",
+    "session_length_in_minutes": 5.0,
+    "device_os": "linux",
+    "keep_alive_session": 1,
+    "device_distinct_emails_8w": 1,
+}
+"""A valid Application, shown in ``/docs``."""
+
+
+def _one_of(allowed: Sequence[float], name: str):
+    def check(value: float) -> float:
+        for candidate in allowed:
+            if abs(value - candidate) < 1e-9:
+                return float(candidate)
+        raise ValueError(f"{name} must be one of {list(allowed)}")
+
+    return AfterValidator(check)
+
+
+Number = Annotated[float, Field(allow_inf_nan=False)]
+NonNegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+MaybeMissing = NonNegative | None
+# Not Literal[0, 1]: that accepts JSON true and false even in strict mode.
+Flag = Annotated[int, Field(strict=True, ge=0, le=1)]
+
+
+class ApplicationIn(BaseModel):
+    """One Application as an API client submits it. Every field is required; ``null``
+    marks a missing value where one is allowed, and unknown fields are rejected."""
+
+    model_config = ConfigDict(
+        strict=True, extra="forbid", json_schema_extra={"examples": [EXAMPLE_APPLICATION]}
+    )
+
+    income: Annotated[float, _one_of([i / 10 for i in range(1, 10)], "income")]
+    name_email_similarity: NonNegative
+    prev_address_months_count: MaybeMissing
+    current_address_months_count: MaybeMissing
+    customer_age: Literal[10, 20, 30, 40, 50, 60, 70, 80, 90]
+    days_since_request: NonNegative
+    intended_balcon_amount: MaybeMissing
+    payment_type: Literal[*CATEGORIES["payment_type"]]
+    zip_count_4w: NonNegative
+    velocity_6h: Number
+    velocity_24h: NonNegative
+    velocity_4w: NonNegative
+    bank_branch_count_8w: NonNegative
+    date_of_birth_distinct_emails_4w: NonNegative
+    employment_status: Literal[*CATEGORIES["employment_status"]]
+    credit_risk_score: Number
+    email_is_free: Flag
+    housing_status: Literal[*CATEGORIES["housing_status"]]
+    phone_home_valid: Flag
+    phone_mobile_valid: Flag
+    bank_months_count: MaybeMissing
+    has_other_cards: Flag
+    proposed_credit_limit: Annotated[
+        float, _one_of(PROPOSED_CREDIT_LIMITS, "proposed_credit_limit")
+    ]
+    foreign_request: Flag
+    source: Literal[*CATEGORIES["source"]]
+    session_length_in_minutes: MaybeMissing
+    device_os: Literal[*CATEGORIES["device_os"]]
+    keep_alive_session: Flag
+    device_distinct_emails_8w: MaybeMissing
+
+
+def to_frame(applications: Sequence[ApplicationIn]) -> pd.DataFrame:
+    """Applications from the API, in the same shape as Applications from the dataset."""
+    return pd.DataFrame([a.model_dump() for a in applications], columns=FIELDS)

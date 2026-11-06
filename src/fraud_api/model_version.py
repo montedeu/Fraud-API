@@ -32,10 +32,14 @@ class ModelVersion:
     def threshold(self) -> float:
         return self.metadata["threshold"]
 
-    def score(self, applications: pd.DataFrame) -> np.ndarray:
-        """Fraud Scores for ``applications``, prepared the same way as in training."""
+    def score(self, applications: pd.DataFrame, *, num_threads: int = 1) -> np.ndarray:
+        """Fraud Scores for ``applications``, prepared the same way as in training.
+
+        One thread by default: the service scores one Application per request, and an
+        OpenMP team per request would only oversubscribe the CPU.
+        """
         features = prepare(applications, self.metadata["features"], self.metadata["categories"])
-        return self.booster.predict(features)
+        return self.booster.predict(features, num_threads=num_threads)
 
 
 def model_version_id(model_text: str, metadata: dict[str, Any]) -> str:

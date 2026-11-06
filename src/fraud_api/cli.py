@@ -1,8 +1,11 @@
-"""Command line: ``fraud-api download`` and ``fraud-api train``."""
+"""Command line: ``fraud-api download``, ``fraud-api train`` and ``fraud-api serve``."""
 
 import argparse
 import json
+import os
 from pathlib import Path
+
+import uvicorn
 
 from fraud_api.data import DATA_DIR, FILE_NAME, download
 from fraud_api.model_version import MODEL_DIR
@@ -23,8 +26,14 @@ def main(argv: list[str] | None = None) -> None:
     train_parser.add_argument("--output", type=Path, default=MODEL_DIR)
     train_parser.add_argument("--seed", type=int, default=SEED)
 
+    serve_parser = commands.add_parser("serve", help="run the scoring service")
+    serve_parser.add_argument("--host", default="0.0.0.0")
+    serve_parser.add_argument("--port", type=int, default=os.environ.get("PORT", "8000"))
+
     args = parser.parse_args(argv)
-    if args.command == "download":
+    if args.command == "serve":
+        uvicorn.run("fraud_api.service:app", host=args.host, port=args.port)
+    elif args.command == "download":
         print(f"verified {download(args.dir)}")
     else:
         model = train(args.data, args.output, seed=args.seed)
