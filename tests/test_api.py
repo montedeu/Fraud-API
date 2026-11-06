@@ -1,0 +1,140 @@
+"""Seam 1: the HTTP API, against the committed Model Version."""
+
+import json
+import uuid
+
+import pytest
+from fastapi.testclient import TestClient
+
+from fraud_api import model_version
+from fraud_api.application import EXAMPLE_APPLICATION, SENTINEL_FIELDS
+from fraud_api.service import create_app
+
+COMMITTED = model_version.load()
+
+
+@pytest.fixture(scope="module")
+def client():
+    with TestClient(create_app()) as client:
+        yield client
+
+
+def _with(**changes):
+    return EXAMPLE_APPLICATION | changes
+
+
+def test_scores_a_valid_application(client):
+    response = client.post("/predict", json=EXAMPLE_APPLICATION)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"fraud_score", "decision", "model_version", "request_id"}
+    assert 0 <= body["fraud_score"] <= 1
+    assert body["decision"] in {"pass", "review"}
+    assert body["model_version"] == COMMITTED.id
+    uuid.UUID(body["request_id"])
+
+
+def test_each_request_gets_its_own_request_id(client):
+    first = client.post("/predict", json=EXAMPLE_APPLICATION).json()["request_id"]
+    second = client.post("/predict", json=EXAMPLE_APPLICATION).json()["request_id"]
+
+    assert first != second
+
+
+@pytest.mark.parametrize(
+    "reference", COMMITTED.metadata["reference_applications"], ids=lambda r: str(r["fraud_score"])
+)
+def test_decision_is_review_exactly_when_the_fraud_score_reaches_the_threshold(client, reference):
+    body = client.post("/predict", json=reference["application"]).json()
+
+    expected = "review" if body["fraud_score"] >= COMMITTED.threshold else "pass"
+    assert body["decision"] == expected
+
+
+def test_both_decisions_occur():
+    # Guards the test above: the reference Applications must exercise both branches.
+    scores = [r["fraud_score"] for r in COMMITTED.metadata["reference_applications"]]
+
+    assert min(scores) < COMMITTED.threshold <= max(scores)
+
+
+def test_training_and_serving_give_the_same_fraud_scores(client):
+    for reference in COMMITTED.metadata["reference_applications"]:
+        body = client.post("/predict", json=reference["application"]).json()
+
+        assert body["fraud_score"] == pytest.approx(reference["fraud_score"], rel=1e-9, abs=1e-12)
+
+
+def test_accepts_null_for_every_field_that_may_be_missing(client):
+    nulls = {field: None for field in [*SENTINEL_FIELDS, "intended_balcon_amount"]}
+
+    response = client.post("/predict", json=_with(**nulls))
+
+    assert response.status_code == 200
+
+
+def test_accepts_negative_credit_risk_score_and_velocity_6h(client):
+    response = client.post("/predict", json=_with(credit_risk_score=-120, velocity_6h=-40.5))
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"payment_type": "AZ"},
+        {"device_os": "android"},
+        {"customer_age": 35},
+        {"customer_age": 100},
+        {"income": 0.65},
+        {"income": 1.0},
+        {"proposed_credit_limit": 750},
+        {"email_is_free": 2},
+        {"bank_months_count": -1},
+        {"intended_balcon_amount": -3.2},
+        {"zip_count_4w": -1},
+        {"credit_risk_score": None},
+        {"customer_age": "30"},
+        {"unexpected_field": 1},
+    ],
+    ids=str,
+)
+def test_rejects_invalid_applications(client, changes):
+    response = client.post("/predict", json=_with(**changes))
+
+    assert response.status_code == 422
+
+
+def test_rejects_a_missing_field(client):
+    application = dict(EXAMPLE_APPLICATION)
+    del application["housing_status"]
+
+    response = client.post("/predict", json=application)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")], ids=str)
+def test_rejects_non_finite_numbers(client, value):
+    # Python's JSON parser accepts NaN and Infinity, so the contract must reject them.
+    response = client.post(
+        "/predict",
+        content=json.dumps(_with(velocity_6h=value)),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_health_returns_the_model_version(client):
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "model_version": COMMITTED.id}
+
+
+def test_docs_show_an_example_application(client):
+    schema = client.get("/openapi.json").json()
+
+    assert schema["components"]["schemas"]["ApplicationIn"]["examples"] == [EXAMPLE_APPLICATION]
