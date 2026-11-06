@@ -7,6 +7,7 @@ Threshold.
 """
 
 import math
+from fractions import Fraction
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -34,8 +35,9 @@ def threshold_for_fpr(
     legitimate = np.sort(s[y == 0])[::-1]
     if legitimate.size == 0:
         raise ValueError("no Legitimate Applications to set a Threshold on")
-    # Round before flooring so that, e.g., 0.29 * 100 = 28.999999999999996 allows 29.
-    allowed = math.floor(round(target_fpr * legitimate.size, 9))
+    # Exact decimal arithmetic: 0.29 * 100 is 28.999999999999996 in floating point, but
+    # the target as written, 29/100, allows 29 flags.
+    allowed = math.floor(Fraction(str(float(target_fpr))) * legitimate.size)
     # Flagging stays within budget exactly when the Threshold is above the score of
     # the first Legitimate Application past the budget.
     return float(np.nextafter(legitimate[allowed], np.inf))
@@ -56,7 +58,9 @@ def recall_at(labels: ArrayLike, scores: ArrayLike, threshold: float) -> float:
 def recall_at_fpr(labels: ArrayLike, scores: ArrayLike, target_fpr: float = TARGET_FPR) -> float:
     """Recall at the Threshold chosen on the same Applications for ``target_fpr``.
 
-    With the default target this is Recall@5%FPR.
+    With the default target this is Recall@5%FPR. The Threshold here is fitted to these
+    Applications; to score the Test Months with the Threshold chosen on the Validation
+    Month (ADR-0001), use ``recall_at`` and ``fpr_at`` with that Threshold instead.
     """
     return recall_at(labels, scores, threshold_for_fpr(labels, scores, target_fpr))
 
@@ -81,6 +85,8 @@ def fpr_ratio(
     age = np.asarray(customer_age, dtype=float)
     if age.shape != y.shape:
         raise ValueError("customer_age must have one value per Application")
+    if not np.isfinite(age).all():
+        raise ValueError("customer_age must be finite")
     legitimate = y == 0
     older = age >= AGE_GROUP_BOUNDARY
     rates = (

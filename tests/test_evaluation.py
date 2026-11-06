@@ -62,6 +62,20 @@ class TestThreshold:
 
         assert fpr_at(labels, scores, threshold) == 0.29
 
+    def test_target_just_below_a_whole_flag_does_not_round_up(self):
+        # 0.0499999999999 of 20 is just under one flag, so none may be flagged.
+        labels = [0] * 20
+        scores = [i / 100 for i in range(20)]
+
+        threshold = threshold_for_fpr(labels, scores, 0.0499999999999)
+
+        assert fpr_at(labels, scores, threshold) == 0.0
+
+    def test_target_just_below_one_leaves_the_top_score_unflagged(self):
+        threshold = threshold_for_fpr([0], [0.5], 1 - 1e-12)
+
+        assert fpr_at([0], [0.5], threshold) == 0.0
+
     @pytest.mark.parametrize("target", [0, 1, -0.1, 1.5])
     def test_rejects_targets_outside_zero_and_one(self, target):
         with pytest.raises(ValueError):
@@ -148,6 +162,10 @@ class TestFprRatio:
 
     def test_nobody_flagged_counts_as_equal(self):
         assert fpr_ratio([0, 0], [0.1, 0.2], [20, 60], 0.5) == 1.0
+
+    def test_rejects_missing_ages(self):
+        with pytest.raises(ValueError):
+            fpr_ratio([0, 0, 0], [0.9, 0.1, 0.9], [float("nan"), 20, 60], 0.5)
 
     def test_needs_legitimate_applications_in_both_age_groups(self):
         with pytest.raises(ValueError):
