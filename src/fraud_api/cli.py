@@ -40,3 +40,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"wrote Model Version {model.id} to {args.output}")
         print(f"Threshold {model.threshold:.6f}")
         print(json.dumps(model.metadata["metrics"], indent=2))
+
+
+if __name__ == "__main__":
+    main()

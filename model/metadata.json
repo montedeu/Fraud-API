@@ -99,6 +99,104 @@
       "fpr_ratio": 0.3240095299513633
     }
   },
+  "comparison": {
+    "lightgbm": {
+      "threshold": 0.02752570290835611,
+      "metrics": {
+        "training": {
+          "applications": 675666,
+          "fraudulent_applications": 6740,
+          "recall_at_5pct_fpr": 0.6992581602373887,
+          "recall_at_threshold": 0.7317507418397626,
+          "fpr_at_threshold": 0.06060162110607152,
+          "pr_auc": 0.27106656077933905,
+          "fpr_ratio": 0.28600548606363335
+        },
+        "validation": {
+          "applications": 119323,
+          "fraudulent_applications": 1411,
+          "recall_at_5pct_fpr": 0.52586817859674,
+          "recall_at_threshold": 0.52586817859674,
+          "fpr_at_threshold": 0.04999491145939344,
+          "pr_auc": 0.15528103160913598,
+          "fpr_ratio": 0.3260457305237634
+        },
+        "test": {
+          "applications": 205011,
+          "fraudulent_applications": 2878,
+          "recall_at_5pct_fpr": 0.5288394718554552,
+          "recall_at_threshold": 0.5625434329395413,
+          "fpr_at_threshold": 0.05947569174751278,
+          "pr_auc": 0.1633563201136212,
+          "fpr_ratio": 0.3240095299513633
+        }
+      }
+    },
+    "logistic_regression": {
+      "threshold": 0.028516881883489175,
+      "metrics": {
+        "training": {
+          "applications": 675666,
+          "fraudulent_applications": 6740,
+          "recall_at_5pct_fpr": 0.5132047477744807,
+          "recall_at_threshold": 0.5884272997032641,
+          "fpr_at_threshold": 0.07235478961798465,
+          "pr_auc": 0.1326722100581827,
+          "fpr_ratio": 0.2872459690891935
+        },
+        "validation": {
+          "applications": 119323,
+          "fraudulent_applications": 1411,
+          "recall_at_5pct_fpr": 0.5067328136073707,
+          "recall_at_threshold": 0.5067328136073707,
+          "fpr_at_threshold": 0.04999491145939344,
+          "pr_auc": 0.15805034952990657,
+          "fpr_ratio": 0.3244214645980018
+        },
+        "test": {
+          "applications": 205011,
+          "fraudulent_applications": 2878,
+          "recall_at_5pct_fpr": 0.5086865879082696,
+          "recall_at_threshold": 0.4996525364836692,
+          "fpr_at_threshold": 0.047740843899808545,
+          "pr_auc": 0.16269179755187246,
+          "fpr_ratio": 0.2948754778125797
+        }
+      }
+    },
+    "credit_risk_score_rule": {
+      "threshold": 258.00000000000006,
+      "metrics": {
+        "training": {
+          "applications": 675666,
+          "fraudulent_applications": 6740,
+          "recall_at_5pct_fpr": 0.2102373887240356,
+          "recall_at_threshold": 0.18724035608308606,
+          "fpr_at_threshold": 0.04214068521779689,
+          "pr_auc": 0.02579111602148145,
+          "fpr_ratio": 0.40540536434433805
+        },
+        "validation": {
+          "applications": 119323,
+          "fraudulent_applications": 1411,
+          "recall_at_5pct_fpr": 0.1927710843373494,
+          "recall_at_threshold": 0.1927710843373494,
+          "fpr_at_threshold": 0.048824547119886014,
+          "pr_auc": 0.03147356038073766,
+          "fpr_ratio": 0.4622803020709032
+        },
+        "test": {
+          "applications": 205011,
+          "fraudulent_applications": 2878,
+          "recall_at_5pct_fpr": 0.19805420430854762,
+          "recall_at_threshold": 0.19805420430854762,
+          "fpr_at_threshold": 0.049264593114434554,
+          "pr_auc": 0.03682317804200588,
+          "fpr_ratio": 0.48482614660758533
+        }
+      }
+    }
+  },
   "data_sha256": "7bf10a37ce07e72e14c1b09e5efee3d27261baff4facc7da767b0474dcf9b809",
   "training": {
     "training_months": [

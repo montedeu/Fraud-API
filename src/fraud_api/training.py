@@ -9,6 +9,7 @@ import pandas as pd
 
 from fraud_api import evaluation
 from fraud_api.application import CATEGORIES, FIELDS, Dataset, read_dataset
+from fraud_api.baselines import Scorer, credit_risk_score_rule, fit_logistic_regression
 from fraud_api.data import DATA_DIR, FILE_NAME, SHA256, verify
 from fraud_api.features import prepare
 from fraud_api.model_version import MODEL_DIR, ModelVersion, write
@@ -28,7 +29,11 @@ def train(
     seed: int = SEED,
 ) -> ModelVersion:
     """Train LightGBM on the Training Months, choose the Threshold on the Validation Month,
-    score the Test Months once, and write the Model Version to ``output_dir``."""
+    score the Test Months once, and write the Model Version to ``output_dir``.
+
+    The two baselines go through the same protocol, each with its own Threshold, and are
+    reported next to LightGBM in the metadata. Only LightGBM is written as a model.
+    """
     verify(data_path, expected_sha256)
     splits = split_by_month(read_dataset(data_path))
 
@@ -40,9 +45,13 @@ def train(
         num_boost_round=NUM_BOOST_ROUND,
     )
 
-    scores = {name: _score(booster, split.applications) for name, split in splits.items()}
-    validation = splits["validation"]
-    threshold = evaluation.threshold_for_fpr(validation.labels, scores["validation"])
+    models: dict[str, Scorer] = {
+        "lightgbm": lambda applications: _score(booster, applications),
+        "logistic_regression": fit_logistic_regression(training.applications, training.labels),
+        "credit_risk_score_rule": credit_risk_score_rule,
+    }
+    comparison = {name: _evaluate(scorer, splits) for name, scorer in models.items()}
+    threshold = comparison["lightgbm"]["threshold"]
 
     references = reference_applications()
     reference_scores = _score(booster, pd.DataFrame(references))
@@ -51,9 +60,8 @@ def train(
         "threshold": threshold,
         "features": FIELDS,
         "categories": CATEGORIES,
-        "metrics": {
-            name: _metrics(split, scores[name], threshold) for name, split in splits.items()
-        },
+        "metrics": comparison["lightgbm"]["metrics"],
+        "comparison": comparison,
         "data_sha256": expected_sha256,
         "training": {
             "training_months": list(TRAINING_MONTHS),
@@ -165,6 +173,18 @@ def _lightgbm_params(seed: int) -> dict[str, Any]:
 
 def _score(booster: lgb.Booster, applications: pd.DataFrame) -> np.ndarray:
     return booster.predict(prepare(applications, FIELDS, CATEGORIES))
+
+
+def _evaluate(scorer: Scorer, splits: dict[str, Dataset]) -> dict[str, Any]:
+    """Threshold at 5% FPR on the Validation Month, then metrics on every split."""
+    scores = {name: scorer(split.applications) for name, split in splits.items()}
+    threshold = evaluation.threshold_for_fpr(splits["validation"].labels, scores["validation"])
+    return {
+        "threshold": threshold,
+        "metrics": {
+            name: _metrics(split, scores[name], threshold) for name, split in splits.items()
+        },
+    }
 
 
 def _metrics(split: Dataset, scores: np.ndarray, threshold: float) -> dict[str, float | int]:
