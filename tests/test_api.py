@@ -16,7 +16,7 @@ COMMITTED = model_version.load()
 
 @pytest.fixture(scope="module")
 def client():
-    with TestClient(create_app()) as client:
+    with TestClient(create_app(rate_limit_per_minute=10_000)) as client:
         yield client
 
 

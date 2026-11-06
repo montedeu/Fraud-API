@@ -8,13 +8,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from fraud_api import model_version
+from fraud_api import model_version, protection
 from fraud_api.application import CATEGORIES, FIELDS, ApplicationIn, to_frame
 
 MODEL_DIR_ENV = "FRAUD_API_MODEL_DIR"
@@ -32,9 +32,19 @@ class Health(BaseModel):
     model_version: str
 
 
-def create_app(model_dir: Path | None = None) -> FastAPI:
+def create_app(
+    model_dir: Path | None = None,
+    *,
+    rate_limit_per_minute: int = protection.RATE_LIMIT_PER_MINUTE,
+    max_body_bytes: int = protection.MAX_BODY_BYTES,
+) -> FastAPI:
     """The FastAPI app. The Model Version is loaded once, at startup, from ``model_dir``,
-    else from ``$FRAUD_API_MODEL_DIR``, else from ``model/``."""
+    else from ``$FRAUD_API_MODEL_DIR``, else from ``model/``.
+
+    ``/predict`` is limited to ``rate_limit_per_minute`` requests per client; ``/health``
+    is never limited. Request bodies over ``max_body_bytes`` get a 413.
+    """
+    rate_limit = protection.RateLimiter(rate_limit_per_minute, window=60.0)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -52,6 +62,7 @@ def create_app(model_dir: Path | None = None) -> FastAPI:
         summary="Scores bank account opening Applications for fraud risk.",
         lifespan=lifespan,
     )
+    app.add_middleware(protection.BodySizeLimit, max_bytes=max_body_bytes)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_application(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -59,7 +70,7 @@ def create_app(model_dir: Path | None = None) -> FastAPI:
             status_code=422, content={"detail": jsonable_encoder(_encodable(exc.errors()))}
         )
 
-    @app.post("/predict")
+    @app.post("/predict", dependencies=[Depends(rate_limit)])
     def predict(application: ApplicationIn, request: Request) -> Scored:
         model: model_version.ModelVersion = request.app.state.model
         fraud_score = float(model.score(to_frame([application]))[0])
