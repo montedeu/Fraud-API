@@ -4,9 +4,14 @@ version = "0.1.0"
 description = "Scores bank account Applications for fraud risk."
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "lightgbm>=4.7.0",
     "numpy>=2.5.4",
+    "pandas>=3.1.1",
     "scikit-learn>=1.9.1",
 ]
+
+[project.scripts]
+fraud-api = "fraud_api.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]
@@ -27,3 +32,11 @@ dev = [
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]
+train = [
+    "kaggle>=2.2.5",
+    # kaggle 2.2.5 imports six without declaring it.
+    "six>=1.17.0",
+]
+
+[tool.uv]
+default-groups = ["dev", "train"]
