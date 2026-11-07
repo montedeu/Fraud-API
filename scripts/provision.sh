@@ -201,13 +201,13 @@ finish() {
 
 # Provisions everything issue #3 asks for: the GCP project, billing, Artifact
 # Registry, Workload Identity Federation, a budget, the Neon database and the
-# GitHub variables/secret the deploy workflow reads. Every stage checks what
+# GitHub variables the deploy workflow reads, with the connection string in Secret Manager. Every stage checks what
 # already exists, so the wizard is safe to re-run after a failure.
 #
 # Run from anywhere inside the repo:  ./scripts/provision.sh
 #
 # Writes non-secret values to .env (gitignored) so re-runs offer them as
-# defaults. DATABASE_URL is never written to disk: it goes to GitHub only.
+# defaults. DATABASE_URL is never written to disk: it goes to Secret Manager only.
 
 GITHUB_REPO="montedeu/Fraud-API"
 WIF_POOL="github"
@@ -215,6 +215,7 @@ WIF_PROVIDER="github-oidc"
 DEPLOY_SA_NAME="github-deployer"
 RUNTIME_SA_NAME="fraud-api-runtime"
 BUDGET_NAME="fraud-api"
+DB_SECRET="database-url"
 
 # run CMD... prints a command, runs it, and offers a retry if it fails.
 # Declining stops the wizard: fix the cause and re-run.
@@ -326,11 +327,12 @@ pause
 
 # ── 4 ─────────────────────────────────────────────────────────────────────
 stage "Enable APIs"
-say "Enabling Cloud Run, Artifact Registry, IAM, STS and Budgets (takes a minute)."
+say "Enabling Cloud Run, Artifact Registry, IAM, STS, Budgets and Secret Manager (takes a minute)."
 run gcloud services enable --project="$GCP_PROJECT_ID" \
   run.googleapis.com artifactregistry.googleapis.com iam.googleapis.com \
   iamcredentials.googleapis.com sts.googleapis.com \
-  cloudresourcemanager.googleapis.com billingbudgets.googleapis.com
+  cloudresourcemanager.googleapis.com billingbudgets.googleapis.com \
+  secretmanager.googleapis.com
 pause
 
 # ── 5 ─────────────────────────────────────────────────────────────────────
@@ -451,16 +453,24 @@ note "Alerts are emailed to the billing account's admins and users (that's you).
 pause
 
 # ── 9 ─────────────────────────────────────────────────────────────────────
-stage "Neon database"
+stage "Neon database → Secret Manager"
+GCP_RUNTIME_SA="${GCP_RUNTIME_SA:-$RUNTIME_SA_NAME@$GCP_PROJECT_ID.iam.gserviceaccount.com}"
+say "The connection string lives in Secret Manager as '$DB_SECRET'. Cloud Run reads it"
+say "as DATABASE_URL through the runtime service account; the deploy workflow never sees it."
+if ! gcloud secrets describe "$DB_SECRET" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+  run gcloud secrets create "$DB_SECRET" --project="$GCP_PROJECT_ID" --replication-policy=automatic
+fi
 SKIP_NEON=0
-if gh secret list --repo "$GITHUB_REPO" 2>/dev/null | grep -q '^DATABASE_URL\b'; then
-  say "GitHub secret DATABASE_URL is already set."
-  confirm "Replace it with a new connection string?" || SKIP_NEON=1
+if [[ -n "$(gcloud secrets versions list "$DB_SECRET" --project="$GCP_PROJECT_ID" \
+              --filter=state=ENABLED --limit=1 --format='value(name)' 2>/dev/null)" ]]; then
+  say "Secret $DB_SECRET already holds a connection string."
+  confirm "Replace it with a new one?" || SKIP_NEON=1
 fi
 if (( ! SKIP_NEON )); then
   open_url "https://console.neon.tech/app/projects"
   step "Sign up or log in (the free plan is enough)."
   step "New project → name: fraud-api, cloud: AWS, region: Europe (Frankfurt) eu-central-1 → Create."
+  step "(Already have it? Open the fraud-api project.)"
   step "On the project dashboard click 'Connect'."
   step "Keep branch 'main', the default database and role; turn connection pooling OFF"
   step "(the direct string avoids PgBouncer quirks; one Cloud Run instance needs no pool)."
@@ -470,9 +480,26 @@ if (( ! SKIP_NEON )); then
     [[ "$DATABASE_URL" =~ ^postgres(ql)?://.+@.+ ]] && break
     warn "That doesn't look like a postgresql:// connection string; try again."
   done
-  set_secret DATABASE_URL "$DATABASE_URL"
+  # From stdin, so the value is never on a command line or on disk. Not through run():
+  # its retry prompt would read from the pipe, and a retry would get an empty stdin.
+  printf '  %s$ gcloud secrets versions add %s --data-file=-%s\n' "$DIM" "$DB_SECRET" "$RESET"
+  until printf '%s' "$DATABASE_URL" | gcloud secrets versions add "$DB_SECRET" \
+          --project="$GCP_PROJECT_ID" --data-file=- --format=none; do
+    warn "That command failed (see the output above)."
+    confirm "Retry it?" || { warn "Stopping. Fix the problem and re-run."; exit 1; }
+  done
   unset DATABASE_URL
-  note "Not written to .env or anywhere else on disk."
+  printf '  %s✓ stored%s the connection string in Secret Manager (%s)\n' "$GREEN" "$RESET" "$DB_SECRET"
+fi
+say "Letting the runtime service account (only) read the secret."
+run gcloud secrets add-iam-policy-binding "$DB_SECRET" --project="$GCP_PROJECT_ID" \
+  --member="serviceAccount:$GCP_RUNTIME_SA" --role=roles/secretmanager.secretAccessor --format=none
+if gh secret list --repo "$GITHUB_REPO" 2>/dev/null | grep -q '^DATABASE_URL\b'; then
+  say "An older run of this wizard stored the string as GitHub secret DATABASE_URL."
+  say "Nothing reads it any more."
+  if confirm "Delete GitHub secret DATABASE_URL?"; then
+    run gh secret delete DATABASE_URL --repo "$GITHUB_REPO"
+  fi
 fi
 pause
 
@@ -561,8 +588,7 @@ pause
 
 finish
 say "GitHub variables: GCP_PROJECT_ID GCP_REGION GAR_REPOSITORY GCP_DEPLOY_SA GCP_RUNTIME_SA GCP_WIF_PROVIDER"
-say "GitHub secret:    DATABASE_URL"
-note "The deploy workflow must pass --service-account=\$GCP_RUNTIME_SA to gcloud run deploy."
+say "Secret Manager:   $DB_SECRET (read by $RUNTIME_SA_NAME as DATABASE_URL)"
 printf '\n'
 }
 

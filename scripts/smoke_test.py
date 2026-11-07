@@ -1,8 +1,8 @@
 """Smoke-test a running Fraud API: python scripts/smoke_test.py https://<service-url>
 
 Checks that the service at the URL serves the committed Model Version: ``/health``
-names it, ``/predict`` scores a reference Application from its metadata to the Fraud
-Score recorded at training time, with the Decision its Threshold implies, and ``/docs``
+names it, ``/predict`` scores one Pass and one Review reference Application from its
+metadata to the Fraud Scores and Decisions recorded at training time, and ``/docs``
 loads. Exits non-zero on the first failure. Standard library only, so it runs on a bare
 CI runner without installing the project.
 """
@@ -10,12 +10,16 @@ CI runner without installing the project.
 import json
 import math
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+# model_version.MODEL_DIR / METADATA_FILE; not imported, so the project needn't be installed.
 METADATA = Path(__file__).resolve().parent.parent / "model" / "metadata.json"
 TIMEOUT_SECONDS = 30
+ATTEMPTS = 3
+"""A 5xx or a dropped connection is retried: a fresh instance may still be warming up."""
 
 
 def _request(url: str, body: dict | None = None) -> tuple[int, bytes]:
@@ -23,11 +27,18 @@ def _request(url: str, body: dict | None = None) -> tuple[int, bytes]:
     request = urllib.request.Request(url, data=data, method="GET" if body is None else "POST")
     if data is not None:
         request.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-            return response.status, response.read()
-    except urllib.error.HTTPError as error:  # a 4xx/5xx is a failed check, not a crash
-        return error.code, error.read()
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as error:  # a 4xx/5xx is a failed check, not a crash
+            if error.code < 500 or attempt == ATTEMPTS:
+                return error.code, error.read()
+        except (urllib.error.URLError, TimeoutError) as error:
+            if attempt == ATTEMPTS:
+                sys.exit(f"FAIL {url}: {error}")
+        time.sleep(5 * attempt)
+    raise AssertionError("unreachable")
 
 
 def _check(condition: bool, message: str) -> None:
@@ -36,36 +47,42 @@ def _check(condition: bool, message: str) -> None:
     print(f"ok   {message}")
 
 
+def _json(status: int, body: bytes, path: str) -> dict:
+    _check(
+        status == 200,
+        f"{path} answers 200" + ("" if status == 200 else f": {status} {body[:200]!r}"),
+    )
+    return json.loads(body)
+
+
 def main(base_url: str) -> None:
     base_url = base_url.rstrip("/")
     metadata = json.loads(METADATA.read_text())
     expected_version = metadata["model_version"]
-    reference = metadata["reference_applications"][0]
+    threshold = metadata["threshold"]
 
-    status, body = _request(f"{base_url}/health")
-    health = json.loads(body)
-    _check(status == 200 and health.get("status") == "ok", f"/health is ok: {health}")
-    _check(
-        health.get("model_version") == expected_version,
-        f"/health serves Model Version {expected_version}",
-    )
+    health = _json(*_request(f"{base_url}/health"), "/health")
+    _check(health == {"status": "ok", "model_version": expected_version}, f"/health: {health}")
 
-    status, body = _request(f"{base_url}/predict", reference["application"])
-    scored = json.loads(body)
-    _check(status == 200, f"/predict answers 200: {scored}")
-    _check(
-        scored.get("model_version") == expected_version,
-        f"/predict names Model Version {expected_version}",
-    )
-    fraud_score = scored.get("fraud_score")
-    _check(
-        isinstance(fraud_score, float)
-        and math.isclose(fraud_score, reference["fraud_score"], rel_tol=1e-9, abs_tol=1e-12),
-        f"/predict Fraud Score {fraud_score} matches the training-time {reference['fraud_score']}",
-    )
-    expected_decision = "review" if fraud_score >= metadata["threshold"] else "pass"
-    _check(scored.get("decision") == expected_decision, f"/predict Decision is {expected_decision}")
-    _check(bool(scored.get("request_id")), "/predict returns a request id")
+    # One reference Application per Decision, so both sides of the Threshold are seen
+    # without filling the Prediction Log with smoke-test rows.
+    references = {}
+    for reference in metadata["reference_applications"]:
+        decision = "review" if reference["fraud_score"] >= threshold else "pass"
+        references.setdefault(decision, reference)
+    _check(set(references) == {"pass", "review"}, "the references cover Pass and Review")
+
+    for decision, reference in references.items():
+        scored = _json(*_request(f"{base_url}/predict", reference["application"]), "/predict")
+        fraud_score = scored.get("fraud_score")
+        _check(
+            scored.get("model_version") == expected_version
+            and scored.get("decision") == decision
+            and bool(scored.get("request_id"))
+            and isinstance(fraud_score, float)
+            and math.isclose(fraud_score, reference["fraud_score"], rel_tol=1e-9, abs_tol=1e-12),
+            f"/predict scores a {decision} reference as at training time: {scored}",
+        )
 
     status, body = _request(f"{base_url}/docs")
     _check(status == 200 and b"swagger" in body.lower(), "/docs loads")
