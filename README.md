@@ -4,9 +4,9 @@ A public API that scores bank account opening Applications for fraud risk. Send 
 
 <!-- generated:about -->
 Model Version `lgbm-f5421b309a8c`, Threshold 0.1037.
-<!-- /generated:about -->
 
 **Try it:** open the live [`/docs`](https://fraud-api-r6bn3ptcuq-ew.a.run.app/docs), pick `POST /predict` → *Try it out* → *Execute*. Or from a terminal:
+<!-- /generated:about -->
 
 <!-- generated:curl -->
 ```bash
@@ -28,16 +28,18 @@ The words used here (Application, Fraud Score, Threshold, Decision, Month…) ar
 
 The data has eight Months (0–7) and nothing finer, so the split is by Month ([ADR 0001](docs/adr/0001-split-by-month-without-refit.md)):
 
+<!-- generated:split -->
 | Months | Role |
 |---|---|
-| 0–4 | Training Months. The final model is fitted here. |
-| 4 | Tuning Month. Optuna compares configurations trained on Months 0–3 here. |
-| 5 | Validation Month. Used only to choose the Threshold. |
-| 6–7 | Test Months. Scored once, after every choice was fixed. |
+| 0–4 | Training Months: the final model is fitted here. |
+| 4 | Tuning Month: Optuna compares configurations trained on Months 0–3 here. |
+| 5 | Validation Month: used only to choose the Threshold. |
+| 6–7 | Test Months: scored once, after every choice was fixed. |
+<!-- /generated:split -->
 
-The model is not refitted on Month 5 after the Threshold is chosen, because that would move the Fraud Scores away from the Threshold chosen for them. Two baselines get their own Thresholds by the same rule: a logistic regression (median imputation with missing indicators, scaling, one-hot) and a single-feature rule on `credit_risk_score`.
+The model is not refitted on the Validation Month after the Threshold is chosen, because that would move the Fraud Scores away from the Threshold chosen for them. Two baselines get their own Thresholds by the same rule: a logistic regression (median imputation with missing indicators, scaling, one-hot) and a single-feature rule on `credit_risk_score`.
 
-The trained model and its metadata are committed in [`model/`](model) ([ADR 0002](docs/adr/0002-model-artifact-committed-to-repo.md)), so one commit pins the code and the exact model it serves. Every number below is generated from [`model/metadata.json`](model/metadata.json) by `fraud-api readme`, and a test fails if the README drifts from it.
+The trained model and its metadata are committed in [`model/`](model) ([ADR 0002](docs/adr/0002-model-artifact-committed-to-repo.md)), so one commit pins the code and the exact model it serves. Every result below is generated from [`model/metadata.json`](model/metadata.json) by `fraud-api readme`, and a test fails if the README drifts from it.
 
 ## Results
 
@@ -51,12 +53,12 @@ Test Months 6–7: 205,011 Applications, 2,878 of them Fraudulent (1.4%). Each m
 | `credit_risk_score` rule | 19.8% | 19.8% | 4.9% | 0.037 | 0.48 |
 <!-- /generated:test-results -->
 
-- **Recall@5%FPR** is the share of Fraudulent Applications flagged at the Fraud Score that flags 5% of Legitimate Applications in these Months. It measures ranking quality.
+- **Recall@5%FPR** is the share of Fraudulent Applications flagged when at most 5% of Legitimate Applications in these Months are flagged. It measures ranking quality.
 - **Recall and FPR at the Threshold** are what the served model actually does with the Threshold chosen a Month earlier.
-- **FPR Ratio** compares the two Age Groups (50 or over, under 50) at the Threshold: the lower group's false positive rate divided by the higher one's. 1 is parity. The BAF authors report about **0.3** for their best LightGBM models on this data.
+- **FPR Ratio** compares the two Age Groups (50 or over, under 50) at the Threshold: the lower group's false positive rate divided by the higher one's. 1 is parity. The BAF authors report about 0.3 for their best LightGBM models on this data.
 
 <!-- generated:validation-results -->
-Validation Month 5: 119,323 Applications, 1,411 of them Fraudulent (1.2%). Optimistic: each Threshold was chosen on this Month, so FPR at the Threshold is 5% by construction.
+Validation Month 5: 119,323 Applications, 1,411 of them Fraudulent (1.2%). Optimistic: each Threshold was chosen on this Month, so FPR at the Threshold is at most 5% by construction (as close as ties in the scores allow).
 
 | Model | Recall@5%FPR | Recall at the Threshold | FPR at the Threshold | PR-AUC | FPR Ratio |
 |---|---:|---:|---:|---:|---:|
@@ -68,7 +70,7 @@ Validation Month 5: 119,323 Applications, 1,411 of them Fraudulent (1.2%). Optim
 ### Tuning
 
 <!-- generated:tuning -->
-50 TPE trials, each trained on Months 0–3 and scored on the Tuning Month 4. Recall@5%FPR on the Tuning Month went from 54.3% with LightGBM defaults to 59.1% tuned (+4.8 points). The tuned figure is the best of 50 trials on that Month, so part of the gain is selection; the Validation Month and Test Months above are the honest measure. The final model uses the best trial's 646 trees. Most of the variance between trials came from `learning_rate` 81%, `num_leaves` 9%, `scale_pos_weight` 6%.
+50 TPE trials, each trained on Months 0–3 and scored on the Tuning Month 4. Recall@5%FPR on the Tuning Month: 54.3% with LightGBM defaults, 59.1% tuned (+4.8 points). LightGBM defaults were scored on the Tuning Month only, so this is the one like-for-like comparison, and the tuned figure is the best of 50 trials on that same Month, so part of the gain is selection. The final model uses the best trial's 646 trees. By fANOVA importance, the parameters that mattered most were `learning_rate` 81%, `num_leaves` 9%, `scale_pos_weight` 6%.
 <!-- /generated:tuning -->
 
 ![Hyperparameter importance from the Optuna study](reports/param_importance.png)
@@ -78,12 +80,12 @@ All trials are in [`reports/optuna_trials.csv`](reports/optuna_trials.csv).
 ### What the numbers say
 
 <!-- generated:discussion -->
-- **LightGBM against logistic regression.** On the Test Months LightGBM flags 55.0% of Fraudulent Applications at 5% FPR, logistic regression 50.9%: 4.2 points. PR-AUC is 0.198 against 0.163. The gap is real but modest: a well-preprocessed linear model gets most of the way, and the single-feature rule gets 19.8%.
-- **Age disparity.** At its Threshold, LightGBM's FPR Ratio on the Test Months is 0.32: Legitimate Applications from one Age Group are flagged about 3.1 times as often as from the other (fraud rises with age, and the model learns it: EDA section 6). That is in line with the BAF authors' best models, around 0.3, and is published rather than hidden ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)).
-- **Drift between Months.** The share of Fraudulent Applications rises from 1.0% in the Training Months and 1.2% in the Validation Month to 1.4% in the Test Months. The Threshold chosen for 5% FPR on the Validation Month flags 6.0% of Legitimate Applications on the Test Months, and catches 59.1% of Fraudulent ones: the operating point moves, and a real deployment would re-choose the Threshold on recent data.
+- **LightGBM against logistic regression.** On the Test Months, at 5% FPR, LightGBM flags 55.0% of Fraudulent Applications and logistic regression 50.9% (+4.1 points); PR-AUC is 0.198 against 0.163. A well-preprocessed linear model gets most of the way; the single-feature rule flags 19.8%.
+- **FPR Ratio between Age Groups.** At its Threshold, LightGBM's FPR Ratio on the Test Months is 0.32: Legitimate Applications from one Age Group are flagged about 3.1 times as often as from the other. Fraud rises with age (EDA section 6), and the model learns it. The BAF authors report about 0.3 for their best models; this one is published rather than hidden ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)).
+- **Drift between Months.** The share of Fraudulent Applications rises from 1.0% in the Training Months and 1.2% in the Validation Month to 1.4% in the Test Months. The Threshold chosen for 5% FPR on the Validation Month flags 6.0% of Legitimate Applications on the Test Months, and 59.1% of Fraudulent ones. A real deployment would re-choose the Threshold on recent data.
 <!-- /generated:discussion -->
 
-Age stays a feature on purpose ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)). Several other fields carry part of the age signal (EDA section 7), so dropping it is expected to leave much of the disparity in place while costing recall; measuring that is a planned follow-up. A separate Threshold per Age Group would treat Applicants differently because of their age.
+Age stays a feature on purpose ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)). Several other fields carry part of the age signal (EDA section 7), so dropping it is expected to leave much of the gap between Age Groups in place while costing recall. Measuring that is a stretch goal in the spec (#1), not done. A separate Threshold per Age Group would treat Applicants differently because of their age.
 
 The [EDA notebook](notebooks/eda.ipynb) shows the data behind these choices; each section ends with the decision it led to.
 
@@ -97,13 +99,16 @@ The [EDA notebook](notebooks/eda.ipynb) shows the data behind these choices; eac
 
 The API is public and unauthenticated by design, so a reviewer can try it in a minute. These are the risks that follow from that, and what bounds them.
 
-- **Abuse and cost.** Cloud Run is capped at one instance with 1 vCPU and 512 MiB. Even busy around the clock, that is about 2.6 million vCPU-seconds a month: roughly **$45 a month** in compute at [Cloud Run's instance-based prices](https://cloud.google.com/run/pricing) (Tier 1, after the free tier). Outbound traffic is not capped by the instance limit. It is about $0.12 per GiB, and the largest public response, `/openapi.json`, is about 6 KB, so a million requests for it cost under a dollar. A sustained flood could still cost more than the compute cap. Two things answer that:
+- **Abuse and cost.** Each revision is capped at one instance with 1 vCPU and 512 MiB ([`deploy.yml`](.github/workflows/deploy.yml)). Busy around the clock, one instance uses about 2.6 million vCPU-seconds a month: roughly **$45 a month** in compute at [Cloud Run's instance-based prices](https://cloud.google.com/run/pricing) (Tier 1, after the free tier). Normally only one revision is reachable. After a rollback, the `candidate` URL keeps the newer revision reachable too, which can double that.
+- **Outbound traffic has no ceiling.** It is billed at about $0.12 per GiB. The largest public response, `/openapi.json`, is about 6 KB, so a million requests for it cost under a dollar, but a sustained flood has no upper bound. Two things answer that:
   - a GCP budget emails the owner at 50% and 100% of a small monthly amount;
   - the kill switch below takes the service off the internet in seconds. There is no automatic billing shutdown.
-- **Rate limit.** `/predict` allows 60 requests a minute per client, with a 429 and `Retry-After` past that. Request bodies over 4 KB get a 413 before they are parsed. The client is the last `X-Forwarded-For` hop, the address Cloud Run saw. Earlier hops are client-supplied and ignored, so a forged header doesn't escape the limit. The limit is per address, so it slows one client but not a distributed attack; an IPv6 client can also rotate addresses within its /64. The limit is kept in memory, which is enough for a single instance.
+<!-- generated:limits -->
+- **Rate limit.** `/predict` allows 60 requests a minute per client, with a 429 and `Retry-After` past that; request bodies over 4,096 bytes get a 413 before they are parsed. The client is the last `X-Forwarded-For` hop, the address Cloud Run saw; earlier hops are client-supplied and ignored, so a forged header doesn't escape the limit. The limit is per address: it slows one client, not a distributed attack, and an IPv6 client can rotate addresses within its /64. It is kept in memory, which is enough for one instance.
+<!-- /generated:limits -->
 - **Model extraction does not matter here.** The model file is already public in this repository, and it was trained on public synthetic data. Querying the API reveals nothing that `git clone` doesn't.
 - **Secrets.**
-  - The Postgres connection string lives only in Secret Manager. Only the service's runtime identity can read it, and the deploy workflow never handles it.
+  - The Postgres connection string lives only in Secret Manager. Besides the project owner, only the service's runtime identity can read it, and the deploy workflow never handles it.
   - GitHub Actions deploys through Workload Identity Federation, pinned to this repository, with short-lived tokens; no service-account key exists.
   - GitHub push protection blocks committed secrets.
 - **Personal data.** The Prediction Log stores the Application, the Fraud Score, the Decision and the latency. It stores no IP addresses or headers.
@@ -113,11 +118,11 @@ The API is public and unauthenticated by design, so a reviewer can try it in a m
 The service runs as `fraud-api` in project `fraud-api-g2z9q`, region `europe-west1`. Every merge to `main` runs the checks, then the deploy:
 
 1. builds and pushes the image;
-2. deploys it as a new revision with no traffic;
+2. deploys it as a new revision with no traffic, tagged `candidate`;
 3. smoke-tests that revision ([`scripts/smoke_test.py`](scripts/smoke_test.py));
-4. only then moves all traffic to it.
+4. only then moves all traffic to it, and smoke-tests again.
 
-A failed smoke test leaves callers on the previous revision. *Actions → Deploy → Run workflow* redeploys `main` without a commit.
+If any of that fails, the deploy puts traffic and the `candidate` tag back on the revision that served before, and deletes the failed one. So the newest revision is always one that passed. The very first deploy, which created the service, had nothing to fall back on. *Actions → Deploy → Run workflow* redeploys `main` without a commit.
 
 **Kill switch:** make the service internal-only. It stops answering the internet at once:
 
@@ -127,13 +132,13 @@ gcloud run services update fraud-api --project fraud-api-g2z9q --region europe-w
 
 To reopen it, run the same command with `--ingress all`.
 
-**Rollback:** send all traffic to the revision before the newest one:
+**Rollback:** send all traffic to the revision before the newest one (the newest is the one live):
 
 ```bash
 gcloud run services update-traffic fraud-api --project fraud-api-g2z9q --region europe-west1 --to-revisions "$(gcloud run revisions list --service fraud-api --project fraud-api-g2z9q --region europe-west1 --sort-by=~metadata.creationTimestamp --format='value(metadata.name)' | sed -n 2p)=100"
 ```
 
-To go forward again, pass `--to-tags candidate=100`; the last deployed revision carries the `candidate` tag. Artifact Registry keeps the three most recent images, so the previous revisions can still start.
+To go forward again, pass `--to-tags candidate=100`: the newest revision carries the `candidate` tag. Artifact Registry keeps the three most recent images, so the two revisions before the live one can still start.
 
 ## Run it locally
 

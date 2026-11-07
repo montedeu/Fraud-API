@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _readme(*, check: bool) -> None:
-    path = Path(readme.README)
+    path = readme.README
     current = path.read_text()
     rendered = readme.render(current, json.loads((MODEL_DIR / METADATA_FILE).read_text()))
     if rendered == current:
