@@ -8,7 +8,19 @@ import uvicorn
 
 from fraud_api.data import DATA_DIR, FILE_NAME, download
 from fraud_api.model_version import MODEL_DIR
-from fraud_api.training import SEED, train
+
+# Kept in step with fraud_api.training, fraud_api.tuning and fraud_api.reports, which are
+# imported only for `train`: serving must not need Optuna or matplotlib.
+SEED = 42
+N_TRIALS = 50
+REPORTS_DIR = Path("reports")
+
+
+def _trials(value: str) -> int:
+    trials = int(value)
+    if trials < 2:
+        raise argparse.ArgumentTypeError("at least 2 trials are needed")
+    return trials
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -23,7 +35,11 @@ def main(argv: list[str] | None = None) -> None:
     train_parser = commands.add_parser("train", help="train a Model Version from Base.csv")
     train_parser.add_argument("--data", type=Path, default=DATA_DIR / FILE_NAME)
     train_parser.add_argument("--output", type=Path, default=MODEL_DIR)
+    train_parser.add_argument("--reports", type=Path, default=REPORTS_DIR)
     train_parser.add_argument("--seed", type=int, default=SEED)
+    train_parser.add_argument(
+        "--trials", type=_trials, default=N_TRIALS, help="Optuna trials (at least 2)"
+    )
 
     serve_parser = commands.add_parser("serve", help="run the scoring service")
     serve_parser.add_argument("--host", default="0.0.0.0")
@@ -35,7 +51,16 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "download":
         print(f"verified {download(args.dir)}")
     else:
-        model = train(args.data, args.output, seed=args.seed)
+        from fraud_api.training import train
+
+        model = train(
+            args.data, args.output, reports_dir=args.reports, seed=args.seed, n_trials=args.trials
+        )
+        summary = model.metadata["optuna"]
+        print(
+            f"Tuning Month Recall@5%FPR: default {summary['tuning_month_default_score']:.3f}, "
+            f"tuned {summary['tuning_month_tuned_score']:.3f} ({summary['n_trials']} trials)"
+        )
         print(f"wrote Model Version {model.id} to {args.output}")
         print(f"Threshold {model.threshold:.6f}\n")
         models = {"lightgbm": model.metadata} | model.metadata["baselines"]

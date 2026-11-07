@@ -26,6 +26,10 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "NPY"]
 
+[tool.uv]
+# train: what fraud-api train needs beyond serving (tests run the pipeline too).
+default-groups = ["dev", "train"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--strict-markers"]
@@ -49,4 +53,8 @@ notebook = [
     "ipykernel>=7.4.0",
     "matplotlib>=3.11.2",
     "nbconvert>=7.17.2",
+]
+train = [
+    "matplotlib>=3.11.2",
+    "optuna>=5.0.0",
 ]
