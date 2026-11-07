@@ -6,10 +6,10 @@ import pandas as pd
 import pytest
 from synthetic import make_dataset, write_dataset
 
-from fraud_api import evaluation, model_version
+from fraud_api import evaluation, model_version, reports
 from fraud_api.application import CATEGORIES, FIELDS, SENTINEL_FIELDS, read_dataset
 from fraud_api.data import ChecksumMismatchError, sha256
-from fraud_api.training import train
+from fraud_api.training import train as train_pipeline
 
 REQUIRED_METADATA = {
     "model_version",
@@ -23,6 +23,17 @@ REQUIRED_METADATA = {
 REQUIRED_METRICS = {"recall_at_5pct_fpr", "fpr_at_threshold", "pr_auc", "fpr_ratio"}
 
 
+TRIALS = 3
+
+
+def train(data_path, output_dir, **kwargs):
+    """The pipeline with a handful of trials and the reports next to the model."""
+    kwargs.setdefault("expected_sha256", sha256(data_path))
+    return train_pipeline(
+        data_path, output_dir, reports_dir=output_dir / "reports", n_trials=TRIALS, **kwargs
+    )
+
+
 @pytest.fixture(scope="module")
 def dataset_path(tmp_path_factory):
     return write_dataset(tmp_path_factory.mktemp("data") / "Base.csv", make_dataset())
@@ -31,7 +42,7 @@ def dataset_path(tmp_path_factory):
 @pytest.fixture(scope="module")
 def trained(dataset_path, tmp_path_factory):
     output = tmp_path_factory.mktemp("model")
-    train(dataset_path, output, expected_sha256=sha256(dataset_path))
+    train(dataset_path, output)
     return output
 
 
@@ -123,7 +134,7 @@ def test_perturbing_test_month_labels_changes_neither_threshold_nor_model(traine
     rows.loc[test_months, "fraud_bool"] = 1 - rows.loc[test_months, "fraud_bool"]
     perturbed_path = write_dataset(tmp_path / "Base.csv", rows)
 
-    perturbed = train(perturbed_path, tmp_path / "model", expected_sha256=sha256(perturbed_path))
+    perturbed = train(perturbed_path, tmp_path / "model")
     original = model_version.load(trained)
 
     assert perturbed.threshold == original.threshold
@@ -131,9 +142,58 @@ def test_perturbing_test_month_labels_changes_neither_threshold_nor_model(traine
 
 
 def test_same_seed_reproduces_the_model_version_id(trained, dataset_path, tmp_path):
-    again = train(dataset_path, tmp_path / "model", expected_sha256=sha256(dataset_path))
+    again = train(dataset_path, tmp_path / "model")
 
     assert again.id == model_version.load(trained).id
+
+
+def test_metadata_has_the_optuna_summary(trained):
+    summary = model_version.load(trained).metadata["optuna"]
+
+    assert summary["n_trials"] == TRIALS
+    assert summary["tuning_month"] == 4
+    assert summary["training_months"] == [0, 1, 2, 3]
+    assert set(summary["best_params"]) == {
+        "num_leaves",
+        "learning_rate",
+        "min_child_samples",
+        "feature_fraction",
+        "bagging_fraction",
+        "lambda_l1",
+        "lambda_l2",
+        "scale_pos_weight",
+    }
+    assert summary["best_num_boost_round"] >= 1
+    assert 0 <= summary["tuning_month_default_score"] <= 1
+    assert 0 <= summary["tuning_month_tuned_score"] <= 1
+    assert set(summary["param_importances"]) == set(summary["best_params"])
+
+
+def test_the_final_model_has_the_best_trial_s_tree_count(trained):
+    loaded = model_version.load(trained)
+
+    assert loaded.booster.num_trees() == loaded.metadata["optuna"]["best_num_boost_round"]
+
+
+def test_writes_the_trials_table_and_the_importance_plot(trained):
+    table = pd.read_csv(trained / "reports" / reports.TRIALS_FILE)
+
+    assert len(table) == TRIALS
+    assert "tuning_month_recall_at_5pct_fpr" in table.columns
+    assert (trained / "reports" / reports.IMPORTANCE_PLOT).stat().st_size > 0
+
+
+def test_perturbing_validation_and_test_month_labels_changes_no_tuning_choice(trained, tmp_path):
+    rows = make_dataset()
+    held_out = rows["month"].isin([5, 6, 7])
+    rows.loc[held_out, "fraud_bool"] = 1 - rows.loc[held_out, "fraud_bool"]
+    perturbed_path = write_dataset(tmp_path / "Base.csv", rows)
+
+    perturbed = train(perturbed_path, tmp_path / "model").metadata["optuna"]
+    original = model_version.load(trained).metadata["optuna"]
+
+    assert perturbed["best_params"] == original["best_params"]
+    assert perturbed["best_num_boost_round"] == original["best_num_boost_round"]
 
 
 def test_refuses_data_with_the_wrong_checksum(dataset_path, tmp_path):

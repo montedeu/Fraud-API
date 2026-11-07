@@ -8,7 +8,9 @@ import uvicorn
 
 from fraud_api.data import DATA_DIR, FILE_NAME, download
 from fraud_api.model_version import MODEL_DIR
+from fraud_api.reports import REPORTS_DIR
 from fraud_api.training import SEED, train
+from fraud_api.tuning import N_TRIALS
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -23,7 +25,9 @@ def main(argv: list[str] | None = None) -> None:
     train_parser = commands.add_parser("train", help="train a Model Version from Base.csv")
     train_parser.add_argument("--data", type=Path, default=DATA_DIR / FILE_NAME)
     train_parser.add_argument("--output", type=Path, default=MODEL_DIR)
+    train_parser.add_argument("--reports", type=Path, default=REPORTS_DIR)
     train_parser.add_argument("--seed", type=int, default=SEED)
+    train_parser.add_argument("--trials", type=int, default=N_TRIALS, help="Optuna trials")
 
     serve_parser = commands.add_parser("serve", help="run the scoring service")
     serve_parser.add_argument("--host", default="0.0.0.0")
@@ -35,7 +39,14 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "download":
         print(f"verified {download(args.dir)}")
     else:
-        model = train(args.data, args.output, seed=args.seed)
+        model = train(
+            args.data, args.output, reports_dir=args.reports, seed=args.seed, n_trials=args.trials
+        )
+        summary = model.metadata["optuna"]
+        print(
+            f"Tuning Month Recall@5%FPR: default {summary['tuning_month_default_score']:.3f}, "
+            f"tuned {summary['tuning_month_tuned_score']:.3f} ({summary['n_trials']} trials)"
+        )
         print(f"wrote Model Version {model.id} to {args.output}")
         print(f"Threshold {model.threshold:.6f}\n")
         models = {"lightgbm": model.metadata} | model.metadata["baselines"]

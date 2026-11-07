@@ -5,10 +5,11 @@ from typing import Any
 
 import lightgbm as lgb
 import numpy as np
+import optuna
 import pandas as pd
 import sklearn
 
-from fraud_api import baselines, evaluation
+from fraud_api import baselines, evaluation, reports, tuning
 from fraud_api.application import CATEGORIES, FIELDS, Dataset, read_dataset
 from fraud_api.data import DATA_DIR, FILE_NAME, SHA256, verify
 from fraud_api.features import prepare
@@ -18,18 +19,21 @@ TRAINING_MONTHS = (0, 1, 2, 3, 4)
 VALIDATION_MONTH = 5
 TEST_MONTHS = (6, 7)
 SEED = 42
-NUM_BOOST_ROUND = 100  # LightGBM's default
 
 
 def train(
     data_path: Path = DATA_DIR / FILE_NAME,
     output_dir: Path = MODEL_DIR,
     *,
+    reports_dir: Path = reports.REPORTS_DIR,
     expected_sha256: str = SHA256,
     seed: int = SEED,
+    n_trials: int = tuning.N_TRIALS,
 ) -> ModelVersion:
-    """Train LightGBM on the Training Months, choose the Threshold on the Validation Month,
-    score the Test Months once, and write the Model Version to ``output_dir``.
+    """Tune LightGBM on the Tuning Month, train it on the Training Months with the best
+    configuration, choose the Threshold on the Validation Month, score the Test Months
+    once, and write the Model Version to ``output_dir`` and the tuning report to
+    ``reports_dir``.
 
     The two baselines go through the same protocol, each with its own Threshold, and are
     reported under ``baselines`` in the metadata. Only LightGBM is written as a model.
@@ -37,13 +41,20 @@ def train(
     verify(data_path, expected_sha256)
     splits = split_by_month(read_dataset(data_path))
 
-    params = _lightgbm_params(seed)
     training = splits["training"]
+    # Only the Training Months reach the search; it holds out Month 4 itself.
+    tuned = tuning.tune(training, n_trials=n_trials, seed=seed)
+    # No early stopping here: the tree count is the best trial's, so neither the
+    # Validation Month nor the Test Months steer the fit.
     booster = lgb.train(
-        params,
+        tuned.params,
         lgb.Dataset(prepare(training.applications, FIELDS, CATEGORIES), label=training.labels),
-        num_boost_round=NUM_BOOST_ROUND,
+        num_boost_round=tuned.num_boost_round,
     )
+    importances = tuning.param_importances(tuned.study, seed)
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    tuning.trials_table(tuned.study).to_csv(reports_dir / reports.TRIALS_FILE, index=False)
+    reports.plot_param_importances(importances, reports_dir / reports.IMPORTANCE_PLOT)
 
     served = _evaluate(lambda applications: _score(booster, applications), splits)
     threshold = served["threshold"]
@@ -67,14 +78,26 @@ def train(
             for name, scorer in baseline_scorers.items()
         },
         "data_sha256": expected_sha256,
+        "optuna": {
+            "n_trials": n_trials,
+            "training_months": list(tuning.TUNING_TRAINING_MONTHS),
+            "tuning_month": tuning.TUNING_MONTH,
+            "objective": "Recall@5%FPR on the Tuning Month",
+            "best_params": tuned.study.best_params,
+            "best_num_boost_round": tuned.num_boost_round,
+            "tuning_month_default_score": tuned.default_score,
+            "tuning_month_tuned_score": tuned.tuned_score,
+            "param_importances": importances,
+        },
         "training": {
             "training_months": list(TRAINING_MONTHS),
             "validation_month": VALIDATION_MONTH,
             "test_months": list(TEST_MONTHS),
-            "lightgbm_params": params,
-            "num_boost_round": NUM_BOOST_ROUND,
+            "lightgbm_params": tuned.params,
+            "num_boost_round": tuned.num_boost_round,
             "lightgbm_version": lgb.__version__,
             "sklearn_version": sklearn.__version__,
+            "optuna_version": optuna.__version__,
         },
         "reference_applications": [
             {"application": application, "fraud_score": float(score)}
@@ -164,16 +187,6 @@ def reference_applications() -> list[dict[str, Any]]:
         application = base | categories | variation
         applications.append({field: application[field] for field in FIELDS})
     return applications
-
-
-def _lightgbm_params(seed: int) -> dict[str, Any]:
-    return {
-        "objective": "binary",
-        "seed": seed,
-        "deterministic": True,
-        "force_row_wise": True,
-        "verbosity": -1,
-    }
 
 
 def _score(booster: lgb.Booster, applications: pd.DataFrame) -> np.ndarray:

@@ -1,6 +1,6 @@
 {
-  "model_version": "lgbm-310dc2ae057c",
-  "threshold": 0.02752570290835611,
+  "model_version": "lgbm-f5421b309a8c",
+  "threshold": 0.10366844380262352,
   "features": [
     "income",
     "name_email_similarity",
@@ -74,29 +74,29 @@
     "training": {
       "applications": 675666,
       "fraudulent_applications": 6740,
-      "recall_at_5pct_fpr": 0.6992581602373887,
-      "recall_at_threshold": 0.7317507418397626,
-      "fpr_at_threshold": 0.06060162110607152,
-      "pr_auc": 0.27106656077933905,
-      "fpr_ratio": 0.28600548606363335
+      "recall_at_5pct_fpr": 0.6275964391691394,
+      "recall_at_threshold": 0.6672106824925816,
+      "fpr_at_threshold": 0.06120108950765855,
+      "pr_auc": 0.19958959023340953,
+      "fpr_ratio": 0.27143105311631566
     },
     "validation": {
       "applications": 119323,
       "fraudulent_applications": 1411,
-      "recall_at_5pct_fpr": 0.52586817859674,
-      "recall_at_threshold": 0.52586817859674,
+      "recall_at_5pct_fpr": 0.5478384124734231,
+      "recall_at_threshold": 0.5478384124734231,
       "fpr_at_threshold": 0.04999491145939344,
-      "pr_auc": 0.15528103160913598,
-      "fpr_ratio": 0.3260457305237634
+      "pr_auc": 0.19310621978037676,
+      "fpr_ratio": 0.32955992905879616
     },
     "test": {
       "applications": 205011,
       "fraudulent_applications": 2878,
-      "recall_at_5pct_fpr": 0.5288394718554552,
-      "recall_at_threshold": 0.5625434329395413,
-      "fpr_at_threshold": 0.05947569174751278,
-      "pr_auc": 0.1633563201136212,
-      "fpr_ratio": 0.3240095299513633
+      "recall_at_5pct_fpr": 0.5503822098679638,
+      "recall_at_threshold": 0.590687977762335,
+      "fpr_at_threshold": 0.05983684010032998,
+      "pr_auc": 0.19834103253729007,
+      "fpr_ratio": 0.31827381481933603
     }
   },
   "baselines": {
@@ -175,6 +175,40 @@
     }
   },
   "data_sha256": "7bf10a37ce07e72e14c1b09e5efee3d27261baff4facc7da767b0474dcf9b809",
+  "optuna": {
+    "n_trials": 50,
+    "training_months": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "tuning_month": 4,
+    "objective": "Recall@5%FPR on the Tuning Month",
+    "best_params": {
+      "num_leaves": 22,
+      "learning_rate": 0.0147232337628846,
+      "min_child_samples": 66,
+      "feature_fraction": 0.41687753832455077,
+      "bagging_fraction": 0.5562954425093534,
+      "lambda_l1": 3.2493463312464027e-07,
+      "lambda_l2": 0.0015039303481169002,
+      "scale_pos_weight": 3.877623975968101
+    },
+    "best_num_boost_round": 646,
+    "tuning_month_default_score": 0.5426997245179064,
+    "tuning_month_tuned_score": 0.5909090909090909,
+    "param_importances": {
+      "learning_rate": 0.8083595534975062,
+      "num_leaves": 0.08924951737073457,
+      "scale_pos_weight": 0.056752979852705505,
+      "feature_fraction": 0.03516990493647971,
+      "bagging_fraction": 0.008402001690832885,
+      "lambda_l2": 0.0010595981692134821,
+      "min_child_samples": 0.0008446263436124486,
+      "lambda_l1": 0.0001618181389153325
+    }
+  },
   "training": {
     "training_months": [
       0,
@@ -193,11 +227,21 @@
       "seed": 42,
       "deterministic": true,
       "force_row_wise": true,
-      "verbosity": -1
+      "verbosity": -1,
+      "num_leaves": 22,
+      "learning_rate": 0.0147232337628846,
+      "min_child_samples": 66,
+      "feature_fraction": 0.41687753832455077,
+      "bagging_fraction": 0.5562954425093534,
+      "bagging_freq": 1,
+      "lambda_l1": 3.2493463312464027e-07,
+      "lambda_l2": 0.0015039303481169002,
+      "scale_pos_weight": 3.877623975968101
     },
-    "num_boost_round": 100,
+    "num_boost_round": 646,
     "lightgbm_version": "4.7.0",
-    "sklearn_version": "1.9.1"
+    "sklearn_version": "1.9.1",
+    "optuna_version": "5.0.0"
   },
   "reference_applications": [
     {
@@ -232,7 +276,7 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.0021816453642217845
+      "fraud_score": 0.008908066429150555
     },
     {
       "application": {
@@ -266,7 +310,7 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.0048982752216122204
+      "fraud_score": 0.015021644519551552
     },
     {
       "application": {
@@ -300,7 +344,7 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.0005331918224017226
+      "fraud_score": 0.0029145275843416745
     },
     {
       "application": {
@@ -334,7 +378,7 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.00519019182399094
+      "fraud_score": 0.018881510550924557
     },
     {
       "application": {
@@ -368,7 +412,7 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.012907951011420388
+      "fraud_score": 0.003524042672971174
     },
     {
       "application": {
@@ -402,7 +446,7 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": null
       },
-      "fraud_score": 0.0006070049757835686
+      "fraud_score": 0.006544286431342499
     },
     {
       "application": {
@@ -436,7 +480,7 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.0003434477835240332
+      "fraud_score": 0.0017506740840859789
     },
     {
       "application": {
@@ -470,7 +514,7 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.01201794267315402
+      "fraud_score": 0.1326035278842982
     },
     {
       "application": {
@@ -504,7 +548,7 @@
         "keep_alive_session": 0,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.0019240171898140261
+      "fraud_score": 0.007219950632644713
     },
     {
       "application": {
@@ -538,7 +582,7 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.006940033556612261
+      "fraud_score": 0.02690505497023797
     },
     {
       "application": {
@@ -572,7 +616,7 @@
         "keep_alive_session": 0,
         "device_distinct_emails_8w": 2
       },
-      "fraud_score": 0.8149367583704985
+      "fraud_score": 0.8715404749019353
     }
   ]
 }
