@@ -2,15 +2,15 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  # main runs these checks through deploy.yml, which deploys only when they pass.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
-  # Superseded PR runs are cancelled; every commit on main keeps its run.
+  # Superseded PR runs are cancelled. On main, deploy.yml's own concurrency decides.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -46,7 +46,9 @@ jobs:
         run: uv run pytest
 
   image:
-    # Proves the Dockerfile still builds; nothing is pushed.
+    # Proves the Dockerfile still builds; nothing is pushed. On main, deploy.yml builds
+    # and pushes the image itself, so this job would only build it a second time.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -59,7 +61,6 @@ jobs:
           context: .
           push: false
           # Layers come from the Actions cache, so while pyproject.toml and uv.lock are
-          # unchanged the dependency layers are reused. Only main writes the cache: a
-          # PR's entries are visible to that PR alone and would crowd main's out.
+          # unchanged the dependency layers are reused. Only main's deploy writes the
+          # cache: a PR's entries are visible to that PR alone and would crowd main's out.
           cache-from: type=gha,scope=image
-          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=image' || '' }}
