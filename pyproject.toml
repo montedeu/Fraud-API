@@ -45,3 +45,8 @@ kaggle = [
     # kaggle 2.2.5 imports six without declaring it.
     "six>=1.17.0",
 ]
+notebook = [
+    "ipykernel>=7.4.0",
+    "matplotlib>=3.11.2",
+    "nbconvert>=7.17.2",
+]
