@@ -2,20 +2,24 @@
 
 import math
 import os
+import time
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from fraud_api import model_version, protection
 from fraud_api.application import CATEGORIES, FIELDS, ApplicationIn, to_frame
+from fraud_api.prediction_log import DATABASE_URL_ENV, Prediction, PredictionLog
 
 MODEL_DIR_ENV = "FRAUD_API_MODEL_DIR"
 RATE_LIMIT_ENV = "FRAUD_API_RATE_LIMIT_PER_MINUTE"
@@ -39,6 +43,7 @@ def create_app(
     *,
     rate_limit_per_minute: int | None = None,
     max_body_bytes: int | None = None,
+    database_url: str | None = None,
 ) -> FastAPI:
     """The FastAPI app. The Model Version is loaded once, at startup, from ``model_dir``,
     else from ``$FRAUD_API_MODEL_DIR``, else from ``model/``.
@@ -46,6 +51,9 @@ def create_app(
     ``/predict`` is limited to ``rate_limit_per_minute`` requests per client; ``/health``
     is never limited. Request bodies over ``max_body_bytes`` get a 413. Each limit comes
     from its argument, else from its environment variable, else from the default.
+
+    Every scored Application goes to the Prediction Log at ``database_url``, else at
+    ``$DATABASE_URL``, after the response is sent. With neither, logging is off.
     """
     rate_limit = protection.RateLimiter(
         _setting(rate_limit_per_minute, RATE_LIMIT_ENV, protection.RATE_LIMIT_PER_MINUTE),
@@ -62,7 +70,11 @@ def create_app(
         if model.metadata["features"] != FIELDS or model.metadata["categories"] != CATEGORIES:
             raise RuntimeError(f"Model Version {model.id} does not match the API contract")
         app.state.model = model
+        prediction_log = PredictionLog(database_url or os.environ.get(DATABASE_URL_ENV))
+        prediction_log.start()
+        app.state.prediction_log = prediction_log
         yield
+        prediction_log.close()
 
     app = FastAPI(
         title="Fraud API",
@@ -70,6 +82,7 @@ def create_app(
         lifespan=lifespan,
     )
     app.add_middleware(protection.BodySizeLimit, max_bytes=max_body_bytes)
+    app.add_middleware(_ReceivedAt)  # outermost, so latency covers the whole request
 
     @app.exception_handler(RequestValidationError)
     async def invalid_application(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -78,21 +91,51 @@ def create_app(
         )
 
     @app.post("/predict", dependencies=[Depends(rate_limit)])
-    def predict(application: ApplicationIn, request: Request) -> Scored:
+    def predict(
+        application: ApplicationIn, request: Request, background: BackgroundTasks
+    ) -> Scored:
         model: model_version.ModelVersion = request.app.state.model
         fraud_score = float(model.score(to_frame([application]))[0])
-        return Scored(
+        scored = Scored(
             fraud_score=fraud_score,
             decision="review" if fraud_score >= model.threshold else "pass",
             model_version=model.id,
             request_id=uuid.uuid4(),
         )
+        prediction_log: PredictionLog = request.app.state.prediction_log
+        if prediction_log.enabled:
+            # Queued after the response has been sent; a writer thread does the rest.
+            background.add_task(
+                prediction_log.submit,
+                Prediction(
+                    request_id=scored.request_id,
+                    created_at=datetime.now(UTC),
+                    model_version=scored.model_version,
+                    application=application.model_dump(),
+                    fraud_score=scored.fraud_score,
+                    decision=scored.decision,
+                    latency_ms=(time.perf_counter() - request.state.received_at) * 1000,
+                ),
+            )
+        return scored
 
     @app.get("/health")
     def health(request: Request) -> Health:
         return Health(status="ok", model_version=request.app.state.model.id)
 
     return app
+
+
+class _ReceivedAt:
+    """Notes when each request reached the service, for the Prediction Log's latency."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            scope.setdefault("state", {})["received_at"] = time.perf_counter()
+        await self.app(scope, receive, send)
 
 
 def _setting(value: int | None, env: str, default: int) -> int:

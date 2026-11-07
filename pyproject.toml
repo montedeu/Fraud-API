@@ -8,6 +8,7 @@ dependencies = [
     "lightgbm>=4.7.0",
     "numpy>=2.5.4",
     "pandas>=3.1.1",
+    "psycopg[binary]>=3.3.8",
     "scikit-learn>=1.9.1",
     "uvicorn>=0.54.0",
 ]
@@ -32,6 +33,9 @@ addopts = ["--strict-markers"]
 [dependency-groups]
 dev = [
     "httpx2>=2.16.0",
+    # Embedded Postgres for the Prediction Log tests when TEST_DATABASE_URL is unset;
+    # its wheels cover x86-64 Linux, macOS and Windows only.
+    "pgserver>=0.1.4; (sys_platform != 'linux' or platform_machine == 'x86_64') and (sys_platform != 'win32' or platform_machine == 'AMD64')",
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]
