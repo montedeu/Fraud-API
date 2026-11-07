@@ -68,10 +68,15 @@ jobs:
       # --no-cpu-throttling: the Prediction Log is written by a thread after the response
       # is sent, and a throttled CPU between requests would leave its rows queued.
       - name: Deploy a candidate revision
+        id: deploy
         run: |
           traffic=()
           if gcloud run services describe "$SERVICE" >/dev/null 2>&1; then
             traffic=(--no-traffic) # refused when the service is created
+            # What serves now, so a failed deploy can be undone (see the last step).
+            serving=$(gcloud run services describe "$SERVICE" --format=json \
+              | jq -r '[.status.traffic[] | select(.percent > 0)][0].revisionName')
+            echo "serving=$serving" >> "$GITHUB_OUTPUT"
           fi
           gcloud run deploy "$SERVICE" \
             --image "$IMAGE" \
@@ -82,6 +87,9 @@ jobs:
             --set-secrets DATABASE_URL=database-url:latest \
             --tag candidate "${traffic[@]}" \
             --quiet
+          candidate=$(gcloud run services describe "$SERVICE" --format=json \
+            | jq -r '.status.traffic[] | select(.tag == "candidate") | .revisionName')
+          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
 
       - name: Smoke-test the candidate revision
         run: |
@@ -96,3 +104,19 @@ jobs:
           url=$(gcloud run services describe "$SERVICE" --format='value(status.url)')
           python3 scripts/smoke_test.py "$url"
           echo "### Live at $url ($(git rev-parse --short HEAD))" >> "$GITHUB_STEP_SUMMARY"
+
+      # A failed deploy leaves no trace: traffic and the candidate tag go back to the
+      # revision that served before, and the failed revision is deleted. So the newest
+      # revision is always one that passed, which the README's rollback relies on.
+      - name: Undo a failed deploy
+        if: failure() && steps.deploy.outputs.serving != '' && steps.deploy.outputs.candidate != ''
+        env:
+          SERVING: ${{ steps.deploy.outputs.serving }}
+          FAILED: ${{ steps.deploy.outputs.candidate }}
+        run: |
+          gcloud run services update-traffic "$SERVICE" \
+            --to-revisions "$SERVING=100" --update-tags "candidate=$SERVING" --quiet
+          if [[ "$FAILED" != "$SERVING" ]]; then
+            gcloud run revisions delete "$FAILED" --quiet
+          fi
+          echo "### Deploy failed: still serving $SERVING" >> "$GITHUB_STEP_SUMMARY"
