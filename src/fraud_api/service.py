@@ -15,6 +15,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from fraud_api import model_version, protection
 from fraud_api.application import CATEGORIES, FIELDS, ApplicationIn, to_frame
@@ -69,11 +70,11 @@ def create_app(
         if model.metadata["features"] != FIELDS or model.metadata["categories"] != CATEGORIES:
             raise RuntimeError(f"Model Version {model.id} does not match the API contract")
         app.state.model = model
-        app.state.prediction_log = PredictionLog(database_url or os.environ.get(DATABASE_URL_ENV))
-        # Best-effort: an unreachable database delays startup by at most the connect
-        # timeout, and the table is created on the first write instead.
-        app.state.prediction_log.ensure_table()
+        prediction_log = PredictionLog(database_url or os.environ.get(DATABASE_URL_ENV))
+        prediction_log.start()
+        app.state.prediction_log = prediction_log
         yield
+        prediction_log.close()
 
     app = FastAPI(
         title="Fraud API",
@@ -81,6 +82,7 @@ def create_app(
         lifespan=lifespan,
     )
     app.add_middleware(protection.BodySizeLimit, max_bytes=max_body_bytes)
+    app.add_middleware(_ReceivedAt)  # outermost, so latency covers the whole request
 
     @app.exception_handler(RequestValidationError)
     async def invalid_application(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -92,7 +94,6 @@ def create_app(
     def predict(
         application: ApplicationIn, request: Request, background: BackgroundTasks
     ) -> Scored:
-        started = time.perf_counter()
         model: model_version.ModelVersion = request.app.state.model
         fraud_score = float(model.score(to_frame([application]))[0])
         scored = Scored(
@@ -103,9 +104,9 @@ def create_app(
         )
         prediction_log: PredictionLog = request.app.state.prediction_log
         if prediction_log.enabled:
-            # Runs after the response has been sent, so logging never delays it.
+            # Queued after the response has been sent; a writer thread does the rest.
             background.add_task(
-                prediction_log.write,
+                prediction_log.submit,
                 Prediction(
                     request_id=scored.request_id,
                     created_at=datetime.now(UTC),
@@ -113,7 +114,7 @@ def create_app(
                     application=application.model_dump(),
                     fraud_score=scored.fraud_score,
                     decision=scored.decision,
-                    latency_ms=(time.perf_counter() - started) * 1000,
+                    latency_ms=(time.perf_counter() - request.state.received_at) * 1000,
                 ),
             )
         return scored
@@ -123,6 +124,18 @@ def create_app(
         return Health(status="ok", model_version=request.app.state.model.id)
 
     return app
+
+
+class _ReceivedAt:
+    """Notes when each request reached the service, for the Prediction Log's latency."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            scope.setdefault("state", {})["received_at"] = time.perf_counter()
+        await self.app(scope, receive, send)
 
 
 def _setting(value: int | None, env: str, default: int) -> int:

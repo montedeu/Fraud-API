@@ -98,13 +98,17 @@ def test_the_table_is_created_on_first_write_when_the_database_was_down_at_start
     parts = urlsplit(postgres_url)
     late_url = urlunsplit(parts._replace(path=f"/{name}"))
 
-    with TestClient(create_app(database_url=late_url)) as client:
-        with psycopg.connect(postgres_url, autocommit=True) as connection:
-            connection.execute(f"CREATE DATABASE {name}")
-        response = client.post("/predict", json=EXAMPLE_APPLICATION)
+    try:
+        with TestClient(create_app(database_url=late_url)) as client:
+            with psycopg.connect(postgres_url, autocommit=True) as connection:
+                connection.execute(f"CREATE DATABASE {name}")
+            response = client.post("/predict", json=EXAMPLE_APPLICATION)
 
-    assert response.status_code == 200
-    assert len(_rows(late_url)) == 1
+        assert response.status_code == 200
+        assert len(_rows(late_url)) == 1
+    finally:
+        with psycopg.connect(postgres_url, autocommit=True) as connection:
+            connection.execute(f"DROP DATABASE IF EXISTS {name} WITH (FORCE)")
 
 
 def test_scoring_works_when_the_database_is_unreachable():
@@ -118,8 +122,6 @@ def test_scoring_works_when_the_database_is_unreachable():
 
 
 def test_with_no_database_url_nothing_is_attempted(monkeypatch):
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-
     def refuse(*args, **kwargs):
         raise AssertionError("no database URL is configured, so nothing should connect")
 
@@ -129,6 +131,37 @@ def test_with_no_database_url_nothing_is_attempted(monkeypatch):
         response = client.post("/predict", json=EXAMPLE_APPLICATION)
 
     assert response.status_code == 200
+
+
+def test_the_table_is_recreated_if_it_is_dropped_while_running(database_url):
+    with TestClient(create_app(database_url=database_url)) as client:
+        with psycopg.connect(database_url, autocommit=True) as connection:
+            connection.execute("DROP TABLE prediction_log")
+        client.post("/predict", json=EXAMPLE_APPLICATION)
+
+    assert len(_rows(database_url)) == 1
+
+
+def test_a_down_database_never_ties_up_request_threads():
+    """Predictions pile up behind one writer thread instead of each holding a request
+    thread for the connect timeout, so scoring stays fast with the database down."""
+    with socket.socket() as silent:
+        silent.bind(("127.0.0.1", 0))
+        silent.listen()
+        port = silent.getsockname()[1]
+        url = f"postgresql://user:password@127.0.0.1:{port}/fraud?connect_timeout=2"
+
+        with _running(create_app(database_url=url, rate_limit_per_minute=10_000)) as base_url:
+            started = time.perf_counter()
+            with httpx.Client(timeout=10) as client:
+                statuses = [
+                    client.post(f"{base_url}/predict", json=EXAMPLE_APPLICATION).status_code
+                    for _ in range(60)
+                ]
+            elapsed = time.perf_counter() - started
+
+    assert statuses == [200] * 60
+    assert elapsed < 5.0
 
 
 def test_the_response_does_not_wait_for_the_write():

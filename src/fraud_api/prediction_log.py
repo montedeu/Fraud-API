@@ -1,10 +1,14 @@
 """The Prediction Log: a durable record of every Application scored and what was answered.
 
-Writing is best-effort. A failure is logged and never reaches the API client: scoring
-must keep working while the database is asleep or down.
+Writing is best-effort and happens on one writer thread of its own, fed by a bounded
+queue. Scoring never waits for the database: when it is asleep or down, Predictions queue
+up, and past the queue's size the newest are dropped and logged. No request thread is
+ever held by a slow or dead database.
 """
 
+import contextlib
 import logging
+import queue
 import threading
 import uuid
 from dataclasses import dataclass
@@ -12,12 +16,14 @@ from datetime import datetime
 from typing import Any
 
 import psycopg
+from psycopg.conninfo import conninfo_to_dict
 from psycopg.types.json import Jsonb
 
 logger = logging.getLogger(__name__)
 
 DATABASE_URL_ENV = "DATABASE_URL"
 CONNECT_TIMEOUT_SECONDS = 5
+QUEUE_SIZE = 1000
 
 CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS prediction_log (
@@ -50,59 +56,109 @@ class Prediction:
     fraud_score: float
     decision: str
     latency_ms: float
+    """From the request reaching the service to the Decision being made."""
+
+
+_STOP = object()
 
 
 class PredictionLog:
     """Writes Predictions to Postgres at ``database_url``, or does nothing when it is
     ``None`` or empty."""
 
-    def __init__(self, database_url: str | None) -> None:
+    def __init__(self, database_url: str | None, *, queue_size: int = QUEUE_SIZE) -> None:
         self._url = database_url or None
+        self._queue: queue.Queue[Any] = queue.Queue(maxsize=queue_size)
+        self._thread: threading.Thread | None = None
+        # Only the writer thread touches these after start().
+        self._connection: psycopg.Connection | None = None
         self._table_ready = False
-        self._lock = threading.Lock()
 
     @property
     def enabled(self) -> bool:
         return self._url is not None
 
-    def ensure_table(self) -> bool:
-        """Create the table if it is missing. False, and logged, if the database is
-        unreachable; the next write tries again."""
-        if not self.enabled:
-            return False
-        with self._lock:
-            if self._table_ready:
-                return True
-            try:
-                with self._connect() as connection:
-                    connection.execute(CREATE_TABLE)
-            except Exception as error:  # best-effort: never let logging break scoring
-                logger.warning("Prediction Log table not ready: %s", error)
-                return False
-            self._table_ready = True
-            return True
-
-    def write(self, prediction: Prediction) -> None:
-        """Record ``prediction``, best-effort."""
-        if not self.enabled or not self.ensure_table():
+    def start(self) -> None:
+        """Create the table, then start the writer thread. An unreachable database delays
+        this by at most the connect timeout; the table is then created on the first write."""
+        if not self.enabled or self._thread is not None:
             return
         try:
-            with self._connect() as connection:
-                connection.execute(
-                    INSERT,
-                    (
-                        prediction.request_id,
-                        prediction.created_at,
-                        prediction.model_version,
-                        Jsonb(prediction.application),
-                        prediction.fraud_score,
-                        prediction.decision,
-                        prediction.latency_ms,
-                    ),
-                )
+            self._ensure_table()
+        except Exception as error:  # best-effort: never let logging break scoring
+            logger.warning("Prediction Log table not created at startup: %s", error)
+            self._disconnect()
+        self._thread = threading.Thread(target=self._run, name="prediction-log", daemon=True)
+        self._thread.start()
+
+    def submit(self, prediction: Prediction) -> None:
+        """Queue ``prediction`` for writing. Never blocks."""
+        if self._thread is None:
+            return
+        try:
+            self._queue.put_nowait(prediction)
+        except queue.Full:
+            logger.warning("Prediction Log queue full; %s not logged", prediction.request_id)
+
+    def close(self, timeout: float = 10.0) -> None:
+        """Write what is queued, for up to ``timeout`` seconds, then stop."""
+        if self._thread is None:
+            return
+        try:
+            self._queue.put(_STOP, timeout=timeout)
+        except queue.Full:
+            logger.warning("Prediction Log queue full at shutdown; queued Predictions lost")
+            return
+        self._thread.join(timeout)
+        self._thread = None
+
+    def _run(self) -> None:
+        while (item := self._queue.get()) is not _STOP:
+            self._write(item)
+        self._disconnect()
+
+    def _write(self, prediction: Prediction) -> None:
+        values = (
+            prediction.request_id,
+            prediction.created_at,
+            prediction.model_version,
+            Jsonb(prediction.application),
+            prediction.fraud_score,
+            prediction.decision,
+            prediction.latency_ms,
+        )
+        try:
+            self._ensure_table()
+            try:
+                self._connected().execute(INSERT, values)
+            except psycopg.errors.UndefinedTable:
+                # Dropped or reset since it was created: create it again, once.
+                self._table_ready = False
+                self._ensure_table()
+                self._connected().execute(INSERT, values)
         except Exception as error:  # best-effort: never let logging break scoring
             logger.warning("Prediction %s not logged: %s", prediction.request_id, error)
+            self._disconnect()
 
-    def _connect(self) -> psycopg.Connection:
-        assert self._url is not None
-        return psycopg.connect(self._url, connect_timeout=CONNECT_TIMEOUT_SECONDS)
+    def _ensure_table(self) -> None:
+        if not self._table_ready:
+            self._connected().execute(CREATE_TABLE)
+            self._table_ready = True
+
+    def _connected(self) -> psycopg.Connection:
+        if self._connection is None or self._connection.closed:
+            assert self._url is not None
+            # A connect_timeout in the URL wins over the default.
+            options = (
+                {}
+                if "connect_timeout" in conninfo_to_dict(self._url)
+                else {"connect_timeout": CONNECT_TIMEOUT_SECONDS}
+            )
+            self._connection = psycopg.connect(self._url, autocommit=True, **options)
+        return self._connection
+
+    def _disconnect(self) -> None:
+        if self._connection is not None:
+            with contextlib.suppress(Exception):  # already broken; nothing left to release
+                self._connection.close()
+            self._connection = None
