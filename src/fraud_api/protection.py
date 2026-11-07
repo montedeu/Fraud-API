@@ -17,11 +17,15 @@ MAX_BODY_BYTES = 4096
 
 
 def client_key(request: Request) -> str:
-    """The first ``X-Forwarded-For`` hop when present (Cloud Run sets it), otherwise the
-    connection's address."""
+    """The last ``X-Forwarded-For`` hop when present, otherwise the connection's address.
+
+    Cloud Run appends the address it saw the request come from. Every hop before it is
+    whatever the caller sent, so keying on the first hop let a caller pick a new key for
+    each request and never be limited.
+    """
     forwarded = request.headers.get("x-forwarded-for")
-    if forwarded and (first := forwarded.split(",")[0].strip()):
-        return first
+    if forwarded and (last := forwarded.split(",")[-1].strip()):
+        return last
     return request.client.host if request.client else "unknown"
 
 
