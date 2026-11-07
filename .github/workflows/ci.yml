@@ -44,3 +44,22 @@ jobs:
         run: uv run ruff format --check
       - name: Test
         run: uv run pytest
+
+  image:
+    # Proves the Dockerfile still builds; nothing is pushed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build image
+        uses: docker/build-push-action@v7
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          context: .
+          push: false
+          # Layers come from the Actions cache, so while pyproject.toml and uv.lock are
+          # unchanged the dependency layers are reused. Only main writes the cache: a
+          # PR's entries are visible to that PR alone and would crowd main's out.
+          cache-from: type=gha,scope=image
+          cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max,scope=image' || '' }}
