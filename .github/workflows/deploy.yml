@@ -73,9 +73,10 @@ jobs:
           traffic=()
           if gcloud run services describe "$SERVICE" >/dev/null 2>&1; then
             traffic=(--no-traffic) # refused when the service is created
-            # What serves now, so a failed deploy can be undone (see the last step).
-            serving=$(gcloud run services describe "$SERVICE" --format=json \
-              | jq -r '[.status.traffic[] | select(.percent > 0)][0].revisionName')
+            # What serves now, recorded before anything changes: the promotion tags it
+            # "previous", and a failed or cancelled deploy goes back to it.
+            serving=$(gcloud run services describe "$SERVICE" --format=json | jq -r \
+              '[.status.traffic[] | select(.percent > 0)] | max_by(.percent) | .revisionName // empty')
             echo "serving=$serving" >> "$GITHUB_OUTPUT"
           fi
           gcloud run deploy "$SERVICE" \
@@ -87,9 +88,6 @@ jobs:
             --set-secrets DATABASE_URL=database-url:latest \
             --tag candidate "${traffic[@]}" \
             --quiet
-          candidate=$(gcloud run services describe "$SERVICE" --format=json \
-            | jq -r '.status.traffic[] | select(.tag == "candidate") | .revisionName')
-          echo "candidate=$candidate" >> "$GITHUB_OUTPUT"
 
       - name: Smoke-test the candidate revision
         run: |
@@ -99,24 +97,25 @@ jobs:
           python3 scripts/smoke_test.py "$url"
 
       - name: Send all traffic to the tested revision
+        env:
+          SERVING: ${{ steps.deploy.outputs.serving }}
         run: |
-          gcloud run services update-traffic "$SERVICE" --to-tags candidate=100 --quiet
+          tags=()
+          [[ -n "$SERVING" ]] && tags=(--update-tags "previous=$SERVING") # the rollback target
+          gcloud run services update-traffic "$SERVICE" --to-tags candidate=100 "${tags[@]}" --quiet
           url=$(gcloud run services describe "$SERVICE" --format='value(status.url)')
           python3 scripts/smoke_test.py "$url"
           echo "### Live at $url ($(git rev-parse --short HEAD))" >> "$GITHUB_STEP_SUMMARY"
 
-      # A failed deploy leaves no trace: traffic and the candidate tag go back to the
-      # revision that served before, and the failed revision is deleted. So the newest
-      # revision is always one that passed, which the README's rollback relies on.
+      # A failed or cancelled deploy goes back to what served before: traffic, and the
+      # candidate tag, so "candidate" always names the last revision that passed. The
+      # failed revision stays, untagged and without traffic (Cloud Run won't delete the
+      # newest revision of a service).
       - name: Undo a failed deploy
-        if: failure() && steps.deploy.outputs.serving != '' && steps.deploy.outputs.candidate != ''
+        if: (failure() || cancelled()) && steps.deploy.outputs.serving != ''
         env:
           SERVING: ${{ steps.deploy.outputs.serving }}
-          FAILED: ${{ steps.deploy.outputs.candidate }}
         run: |
           gcloud run services update-traffic "$SERVICE" \
             --to-revisions "$SERVING=100" --update-tags "candidate=$SERVING" --quiet
-          if [[ "$FAILED" != "$SERVING" ]]; then
-            gcloud run revisions delete "$FAILED" --quiet
-          fi
           echo "### Deploy failed: still serving $SERVING" >> "$GITHUB_STEP_SUMMARY"
