@@ -2,8 +2,8 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  # main runs these checks through deploy.yml, which deploys only when they pass.
+  workflow_call:
 
 permissions:
   contents: read

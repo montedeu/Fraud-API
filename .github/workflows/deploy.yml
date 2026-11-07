@@ -1,0 +1,98 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One deploy at a time. A running deploy is never cancelled; a newer push replaces
+  # one still waiting, so the latest commit is what ends up live.
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # the GitHub OIDC token that Workload Identity Federation exchanges
+    env:
+      SERVICE: fraud-api
+      PROJECT: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GAR_REPOSITORY }}/fraud-api:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Short-lived credentials for the deployer service account; no JSON key exists.
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Log Docker in to Artifact Registry
+        run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+
+      - uses: docker/setup-buildx-action@v4
+      - name: Build and push the image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=image
+          cache-to: type=gha,mode=max,scope=image
+
+      # The new revision gets the "candidate" tag and no traffic, so users keep the
+      # current revision until the smoke test has passed on the new one.
+      - name: Deploy a candidate revision
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          # The connection string goes through a file, never the command line, and the
+          # file is removed straight after.
+          env_file="$RUNNER_TEMP/env.yaml"
+          (umask 077 && python3 -c 'import json, os; print("DATABASE_URL:", json.dumps(os.environ["DATABASE_URL"]))' > "$env_file")
+          traffic=()
+          if gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" >/dev/null 2>&1; then
+            traffic=(--no-traffic) # not allowed when the service is created
+          fi
+          status=0
+          gcloud run deploy "$SERVICE" --project "$PROJECT" --region "$REGION" \
+            --image "$IMAGE" \
+            --service-account "${{ vars.GCP_RUNTIME_SA }}" \
+            --allow-unauthenticated \
+            --max-instances 1 --cpu 1 --memory 512Mi \
+            --no-cpu-throttling \
+            --env-vars-file "$env_file" \
+            --tag candidate "${traffic[@]}" \
+            --quiet || status=$?
+          rm -f "$env_file"
+          exit "$status"
+
+      - name: Smoke-test the candidate revision
+        run: |
+          url=$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" \
+            --format=json | jq -r '.status.traffic[] | select(.tag == "candidate") | .url')
+          echo "candidate: $url"
+          python3 scripts/smoke_test.py "$url"
+
+      - name: Send all traffic to the new revision
+        run: |
+          gcloud run services update-traffic "$SERVICE" --project "$PROJECT" --region "$REGION" \
+            --to-latest --quiet
+          url=$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" \
+            --format='value(status.url)')
+          echo "### Deployed to $url" >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/smoke_test.py "$url"
