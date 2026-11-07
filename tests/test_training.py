@@ -152,7 +152,7 @@ def test_metadata_has_the_optuna_summary(trained):
 
     assert summary["n_trials"] == TRIALS
     assert summary["tuning_month"] == 4
-    assert summary["training_months"] == [0, 1, 2, 3]
+    assert summary["trial_fit_months"] == [0, 1, 2, 3]
     assert set(summary["best_params"]) == {
         "num_leaves",
         "learning_rate",
@@ -230,3 +230,22 @@ def test_editing_the_threshold_breaks_the_model_version_id(trained, tmp_path):
 
     with pytest.raises(ValueError, match="Model Version id"):
         model_version.load(copy)
+
+
+def test_fewer_than_two_trials_are_refused_before_any_work(dataset_path, tmp_path):
+    with pytest.raises(ValueError, match="n_trials"):
+        train_pipeline(
+            dataset_path, tmp_path / "model", expected_sha256=sha256(dataset_path), n_trials=1
+        )
+
+    assert not (tmp_path / "model").exists()
+
+
+def test_cli_defaults_match_the_pipeline():
+    from fraud_api import cli, training, tuning
+
+    assert (cli.SEED, cli.N_TRIALS, cli.REPORTS_DIR) == (
+        training.SEED,
+        tuning.N_TRIALS,
+        reports.REPORTS_DIR,
+    )

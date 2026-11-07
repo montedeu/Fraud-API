@@ -2,11 +2,9 @@
 
 from pathlib import Path
 
-import matplotlib
-
-matplotlib.use("Agg")
-
-import matplotlib.pyplot as plt  # noqa: E402
+# A bare Figure needs no pyplot and no backend, so importing this module never changes
+# the plotting backend of whoever imports it (a notebook, say).
+from matplotlib.figure import Figure
 
 REPORTS_DIR = Path("reports")
 TRIALS_FILE = "optuna_trials.csv"
@@ -24,7 +22,8 @@ def plot_param_importances(importances: dict[str, float], path: Path) -> None:
     names = list(importances)[::-1]
     values = [importances[name] for name in names]
 
-    fig, ax = plt.subplots(figsize=(7, 0.42 * len(names) + 1.2), dpi=150)
+    fig = Figure(figsize=(7, 0.42 * len(names) + 1.2), dpi=150)
+    ax = fig.subplots()
     fig.patch.set_facecolor(_SURFACE)
     ax.set_facecolor(_SURFACE)
     bars = ax.barh(names, values, height=0.5, color=_BAR)
@@ -53,4 +52,3 @@ def plot_param_importances(importances: dict[str, float], path: Path) -> None:
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, facecolor=_SURFACE)
-    plt.close(fig)

@@ -8,9 +8,19 @@ import uvicorn
 
 from fraud_api.data import DATA_DIR, FILE_NAME, download
 from fraud_api.model_version import MODEL_DIR
-from fraud_api.reports import REPORTS_DIR
-from fraud_api.training import SEED, train
-from fraud_api.tuning import N_TRIALS
+
+# Kept in step with fraud_api.training, fraud_api.tuning and fraud_api.reports, which are
+# imported only for `train`: serving must not need Optuna or matplotlib.
+SEED = 42
+N_TRIALS = 50
+REPORTS_DIR = Path("reports")
+
+
+def _trials(value: str) -> int:
+    trials = int(value)
+    if trials < 2:
+        raise argparse.ArgumentTypeError("at least 2 trials are needed")
+    return trials
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -27,7 +37,9 @@ def main(argv: list[str] | None = None) -> None:
     train_parser.add_argument("--output", type=Path, default=MODEL_DIR)
     train_parser.add_argument("--reports", type=Path, default=REPORTS_DIR)
     train_parser.add_argument("--seed", type=int, default=SEED)
-    train_parser.add_argument("--trials", type=int, default=N_TRIALS, help="Optuna trials")
+    train_parser.add_argument(
+        "--trials", type=_trials, default=N_TRIALS, help="Optuna trials (at least 2)"
+    )
 
     serve_parser = commands.add_parser("serve", help="run the scoring service")
     serve_parser.add_argument("--host", default="0.0.0.0")
@@ -39,6 +51,8 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "download":
         print(f"verified {download(args.dir)}")
     else:
+        from fraud_api.training import train
+
         model = train(
             args.data, args.output, reports_dir=args.reports, seed=args.seed, n_trials=args.trials
         )

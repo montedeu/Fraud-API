@@ -38,6 +38,8 @@ def train(
     The two baselines go through the same protocol, each with its own Threshold, and are
     reported under ``baselines`` in the metadata. Only LightGBM is written as a model.
     """
+    if n_trials < tuning.MIN_TRIALS:
+        raise ValueError(f"n_trials must be at least {tuning.MIN_TRIALS}, got {n_trials}")
     verify(data_path, expected_sha256)
     splits = split_by_month(read_dataset(data_path))
 
@@ -52,9 +54,6 @@ def train(
         num_boost_round=tuned.num_boost_round,
     )
     importances = tuning.param_importances(tuned.study, seed)
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    tuning.trials_table(tuned.study).to_csv(reports_dir / reports.TRIALS_FILE, index=False)
-    reports.plot_param_importances(importances, reports_dir / reports.IMPORTANCE_PLOT)
 
     served = _evaluate(lambda applications: _score(booster, applications), splits)
     threshold = served["threshold"]
@@ -80,13 +79,15 @@ def train(
         "data_sha256": expected_sha256,
         "optuna": {
             "n_trials": n_trials,
-            "training_months": list(tuning.TUNING_TRAINING_MONTHS),
+            "trial_fit_months": list(tuning.TRIAL_FIT_MONTHS),
             "tuning_month": tuning.TUNING_MONTH,
             "objective": "Recall@5%FPR on the Tuning Month",
             "best_params": tuned.study.best_params,
             "best_num_boost_round": tuned.num_boost_round,
             "tuning_month_default_score": tuned.default_score,
             "tuning_month_tuned_score": tuned.tuned_score,
+            "note": "The tuned score is the best of n_trials on the Tuning Month and so "
+            "optimistic; compare default and tuned on the Validation Month and Test Months.",
             "param_importances": importances,
         },
         "training": {
@@ -104,7 +105,13 @@ def train(
             for application, score in zip(references, reference_scores, strict=True)
         ],
     }
-    return write(output_dir, booster, metadata)
+    model = write(output_dir, booster, metadata)
+    # Written after the Model Version, so a failed run never leaves reports that
+    # describe a model other than the committed one.
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    tuning.trials_table(tuned.study).to_csv(reports_dir / reports.TRIALS_FILE, index=False)
+    reports.plot_param_importances(importances, reports_dir / reports.IMPORTANCE_PLOT)
+    return model
 
 
 def split_by_month(dataset: Dataset) -> dict[str, Dataset]:

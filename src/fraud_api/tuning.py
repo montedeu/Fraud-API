@@ -16,7 +16,9 @@ from fraud_api import evaluation
 from fraud_api.application import CATEGORIES, FIELDS, Dataset
 from fraud_api.features import prepare
 
-TUNING_TRAINING_MONTHS = (0, 1, 2, 3)
+TRIAL_FIT_MONTHS = (0, 1, 2, 3)
+"""What each trial trains on: the Training Months before the Tuning Month."""
+MIN_TRIALS = 2  # fANOVA importances need at least two completed trials
 TUNING_MONTH = 4
 N_TRIALS = 50
 MAX_BOOST_ROUND = 2000
@@ -63,13 +65,21 @@ def search_space(trial: optuna.Trial) -> dict[str, Any]:
 
 
 def tune(dataset: Dataset, *, n_trials: int = N_TRIALS, seed: int) -> TuningResult:
-    """Search LightGBM configurations using only the Tuning Months of ``dataset``."""
-    train_mask = np.isin(dataset.months, TUNING_TRAINING_MONTHS)
-    tuning_mask = dataset.months == TUNING_MONTH
-    x_train = prepare(dataset.applications[train_mask], FIELDS, CATEGORIES)
-    y_train = dataset.labels[train_mask]
-    x_tune = prepare(dataset.applications[tuning_mask], FIELDS, CATEGORIES)
-    y_tune = dataset.labels[tuning_mask]
+    """Search LightGBM configurations: fit on Months 0–3 of ``dataset``, score on the
+    Tuning Month. Nothing else in ``dataset`` is read.
+
+    The tuned score is the best of ``n_trials`` on the Tuning Month, so it is optimistic
+    by construction; the honest comparison with the default is on the Validation Month
+    and Test Months, after the final fit.
+    """
+    if n_trials < MIN_TRIALS:
+        raise ValueError(f"n_trials must be at least {MIN_TRIALS}, got {n_trials}")
+    fit = dataset.where(np.isin(dataset.months, TRIAL_FIT_MONTHS))
+    tuning_month = dataset.where(dataset.months == TUNING_MONTH)
+    x_train = prepare(fit.applications, FIELDS, CATEGORIES)
+    y_train = fit.labels
+    x_tune = prepare(tuning_month.applications, FIELDS, CATEGORIES)
+    y_tune = tuning_month.labels
 
     def recall(booster: lgb.Booster, num_iteration: int | None = None) -> float:
         scores = booster.predict(x_tune, num_iteration=num_iteration)

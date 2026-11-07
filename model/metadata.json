@@ -177,7 +177,7 @@
   "data_sha256": "7bf10a37ce07e72e14c1b09e5efee3d27261baff4facc7da767b0474dcf9b809",
   "optuna": {
     "n_trials": 50,
-    "training_months": [
+    "trial_fit_months": [
       0,
       1,
       2,
@@ -198,6 +198,7 @@
     "best_num_boost_round": 646,
     "tuning_month_default_score": 0.5426997245179064,
     "tuning_month_tuned_score": 0.5909090909090909,
+    "note": "The tuned score is the best of n_trials on the Tuning Month and so optimistic; compare default and tuned on the Validation Month and Test Months.",
     "param_importances": {
       "learning_rate": 0.8083595534975062,
       "num_leaves": 0.08924951737073457,
