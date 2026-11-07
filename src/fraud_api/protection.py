@@ -19,9 +19,10 @@ MAX_BODY_BYTES = 4096
 def client_key(request: Request) -> str:
     """The last ``X-Forwarded-For`` hop when present, otherwise the connection's address.
 
-    Cloud Run appends the address it saw the request come from. Every hop before it is
-    whatever the caller sent, so keying on the first hop let a caller pick a new key for
-    each request and never be limited.
+    On a service reached directly at its ``run.app`` URL, Cloud Run appends exactly one
+    hop, the address it saw the client connect from; every hop before it is whatever the
+    client sent. A load balancer in front would append its own address after that one,
+    and this would then need to count back past it.
     """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded and (last := forwarded.split(",")[-1].strip()):

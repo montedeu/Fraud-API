@@ -43,20 +43,20 @@ def test_another_forwarded_for_client_is_not_affected(client):
     assert _predict(client, "198.51.100.2").status_code == 200
 
 
-def test_clients_are_keyed_on_the_last_forwarded_for_hop(client):
-    # Cloud Run appends the address it saw; everything before it came from the caller.
-    for _ in range(LIMIT):
-        _predict(client, "198.51.100.1, 203.0.113.7")
-
-    assert _predict(client, "198.51.100.2, 203.0.113.7").status_code == 429
-
-
 def test_a_forged_forwarded_for_does_not_escape_the_limit(client):
+    # Cloud Run appends the address it saw; the hops before it are the client's own.
     statuses = [
         _predict(client, f"198.51.100.{i}, 203.0.113.7").status_code for i in range(LIMIT + 1)
     ]
 
-    assert statuses[-1] == 429
+    assert statuses == [200] * LIMIT + [429]
+
+
+def test_clients_behind_the_same_forged_hop_are_kept_apart(client):
+    for _ in range(LIMIT + 1):
+        _predict(client, "198.51.100.1, 203.0.113.7")
+
+    assert _predict(client, "198.51.100.1, 203.0.113.8").status_code == 200
 
 
 def test_without_forwarded_for_the_connection_address_is_the_client(client):
