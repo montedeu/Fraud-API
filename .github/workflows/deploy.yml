@@ -59,6 +59,9 @@ jobs:
           context: .
           push: true
           tags: ${{ env.IMAGE }}
+          # One manifest per deploy, no attestation alongside it, so the registry's cleanup
+          # policy (scripts/provision.sh) counts deploys exactly.
+          provenance: false
           cache-from: type=gha,scope=image
           cache-to: type=gha,mode=max,scope=image
 
