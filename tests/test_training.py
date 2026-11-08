@@ -87,6 +87,15 @@ def test_reference_fraud_scores_match_the_loaded_model(trained):
     assert scores == pytest.approx([r["fraud_score"] for r in references], rel=1e-12)
 
 
+def test_reference_top_factors_match_the_loaded_model(trained):
+    loaded = model_version.load(trained)
+
+    for reference in loaded.metadata["reference_applications"]:
+        contributions = loaded.contributions(pd.DataFrame([reference["application"]]))
+        expected = model_version.top_factors(contributions.iloc[0], reference["application"])
+        assert reference["top_factors"] == expected
+
+
 def test_threshold_gives_5_percent_fpr_on_the_validation_month(trained, dataset_path):
     loaded = model_version.load(trained)
     validation = _month(dataset_path, 5)

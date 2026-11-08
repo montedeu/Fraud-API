@@ -33,14 +33,18 @@ CREATE TABLE IF NOT EXISTS prediction_log (
     application   jsonb NOT NULL,
     fraud_score   double precision NOT NULL,
     decision      text NOT NULL CHECK (decision IN ('pass', 'review')),
-    latency_ms    double precision NOT NULL
+    latency_ms    double precision NOT NULL,
+    top_factors   jsonb
 )
 """
+# Tables created before top_factors existed gain the column; their old rows keep NULL.
+ADD_TOP_FACTORS = "ALTER TABLE prediction_log ADD COLUMN IF NOT EXISTS top_factors jsonb"
 
 INSERT = """
 INSERT INTO prediction_log
-    (request_id, created_at, model_version, application, fraud_score, decision, latency_ms)
-VALUES (%s, %s, %s, %s, %s, %s, %s)
+    (request_id, created_at, model_version, application, fraud_score, decision, latency_ms,
+     top_factors)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
@@ -57,6 +61,7 @@ class Prediction:
     decision: str
     latency_ms: float
     """From the request reaching the service to the Decision being made."""
+    top_factors: list[dict[str, Any]]
 
 
 _STOP = object()
@@ -126,6 +131,7 @@ class PredictionLog:
             prediction.fraud_score,
             prediction.decision,
             prediction.latency_ms,
+            Jsonb(prediction.top_factors),
         )
         try:
             self._ensure_table()
@@ -143,6 +149,7 @@ class PredictionLog:
     def _ensure_table(self) -> None:
         if not self._table_ready:
             self._connected().execute(CREATE_TABLE)
+            self._connected().execute(ADD_TOP_FACTORS)
             self._table_ready = True
 
     def _connected(self) -> psycopg.Connection:

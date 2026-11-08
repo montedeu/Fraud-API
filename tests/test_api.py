@@ -1,9 +1,11 @@
 """Seam 1: the HTTP API, against the committed Model Version."""
 
 import json
+import math
 import shutil
 import uuid
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -29,7 +31,7 @@ def test_scores_a_valid_application(client):
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"fraud_score", "decision", "model_version", "request_id"}
+    assert set(body) == {"fraud_score", "decision", "model_version", "request_id", "top_factors"}
     assert 0 <= body["fraud_score"] <= 1
     assert body["decision"] in {"pass", "review"}
     assert body["model_version"] == COMMITTED.id
@@ -65,6 +67,56 @@ def test_training_and_serving_give_the_same_fraud_scores(client):
         body = client.post("/predict", json=reference["application"]).json()
 
         assert body["fraud_score"] == pytest.approx(reference["fraud_score"], rel=1e-9, abs=1e-12)
+
+
+@pytest.mark.parametrize(
+    "reference", COMMITTED.metadata["reference_applications"], ids=lambda r: str(r["fraud_score"])
+)
+def test_top_factors_are_the_three_largest_contributions_with_the_applicant_s_values(
+    client, reference
+):
+    application = reference["application"]
+    factors = client.post("/predict", json=application).json()["top_factors"]
+
+    assert len(factors) == 3
+    assert len({f["field"] for f in factors}) == 3
+    for factor in factors:
+        assert factor["value"] == application[factor["field"]]
+    sizes = [abs(f["contribution"]) for f in factors]
+    assert sizes == sorted(sizes, reverse=True)
+
+
+def test_training_and_serving_give_the_same_top_factors(client):
+    for reference in COMMITTED.metadata["reference_applications"]:
+        factors = client.post("/predict", json=reference["application"]).json()["top_factors"]
+
+        expected = reference["top_factors"]
+        assert [f["field"] for f in factors] == [f["field"] for f in expected]
+        for served, trained in zip(factors, expected, strict=True):
+            assert served["contribution"] == pytest.approx(trained["contribution"], rel=1e-9)
+
+
+def test_contributions_add_up_to_the_fraud_score(client):
+    # Every field's contribution plus the expected value is the raw score (log-odds),
+    # and the Fraud Score is its logistic transform.
+    for reference in COMMITTED.metadata["reference_applications"]:
+        fraud_score = client.post("/predict", json=reference["application"]).json()["fraud_score"]
+        contributions = COMMITTED.contributions(
+            pd.DataFrame([reference["application"]], columns=FIELDS)
+        )
+
+        raw = contributions.sum(axis=1).iloc[0]
+        assert 1 / (1 + math.exp(-raw)) == pytest.approx(fraud_score, rel=1e-9)
+
+
+def test_top_factors_name_null_values_too(client):
+    nulls = {field: None for field in [*SENTINEL_FIELDS, "intended_balcon_amount"]}
+
+    factors = client.post("/predict", json=_with(**nulls)).json()["top_factors"]
+
+    assert all(
+        f["value"] == nulls.get(f["field"], EXAMPLE_APPLICATION[f["field"]]) for f in factors
+    )
 
 
 def test_accepts_null_for_every_field_that_may_be_missing(client):

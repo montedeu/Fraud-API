@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,8 @@ METADATA_FILE = "metadata.json"
 MODEL_DIR = Path("model")
 SCORING_FIELDS = ("threshold", "features", "categories")
 """Metadata that changes what the model decides, so it is part of the Model Version id."""
+TOP_FACTORS = 3
+EXPECTED_VALUE = "expected_value"
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,54 @@ class ModelVersion:
         """
         features = prepare(applications, self.metadata["features"], self.metadata["categories"])
         return self.booster.predict(features, num_threads=num_threads)
+
+    def contributions(self, applications: pd.DataFrame, *, num_threads: int = 1) -> pd.DataFrame:
+        """See :func:`contributions`."""
+        return contributions(
+            self.booster,
+            applications,
+            self.metadata["features"],
+            self.metadata["categories"],
+            num_threads=num_threads,
+        )
+
+
+def contributions(
+    booster: lgb.Booster,
+    applications: pd.DataFrame,
+    features: Sequence[str],
+    categories: Mapping[str, Sequence[str]],
+    *,
+    num_threads: int = 1,
+) -> pd.DataFrame:
+    """How much each field moved each Application's raw score, LightGBM's TreeSHAP values.
+
+    One column per feature, plus ``expected_value``; each row sums to the raw score, in
+    log-odds, whose logistic transform is the Fraud Score. Positive pushes towards Review.
+    """
+    prepared = prepare(applications, features, categories)
+    values = booster.predict(prepared, pred_contrib=True, num_threads=num_threads)
+    return pd.DataFrame(
+        values, columns=[*prepared.columns, EXPECTED_VALUE], index=applications.index
+    )
+
+
+def top_factors(
+    contributions_row: pd.Series, application: Mapping[str, Any], n: int = TOP_FACTORS
+) -> list[dict[str, Any]]:
+    """The ``n`` fields with the largest absolute contribution, largest first, each with
+    the Applicant's value (``None`` if missing) and its signed contribution in log-odds."""
+    fields = contributions_row.drop(EXPECTED_VALUE)
+    # Stable, so ties keep the feature order and the result never depends on the platform.
+    order = np.argsort(-fields.abs().to_numpy(), kind="stable")[:n]
+    return [
+        {
+            "field": fields.index[i],
+            "value": application[fields.index[i]],
+            "contribution": float(fields.iloc[i]),
+        }
+        for i in order
+    ]
 
 
 def model_version_id(model_text: str, metadata: dict[str, Any]) -> str:

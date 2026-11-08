@@ -344,7 +344,24 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.008908066429150555
+      "fraud_score": 0.008908066429150555,
+      "top_factors": [
+        {
+          "field": "housing_status",
+          "value": "BA",
+          "contribution": 0.9102531266329635
+        },
+        {
+          "field": "prev_address_months_count",
+          "value": 20,
+          "contribution": -0.5999459034527709
+        },
+        {
+          "field": "device_os",
+          "value": "linux",
+          "contribution": -0.3797511991667
+        }
+      ]
     },
     {
       "application": {
@@ -378,7 +395,24 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.015021644519551552
+      "fraud_score": 0.015021644519551552,
+      "top_factors": [
+        {
+          "field": "device_os",
+          "value": "macintosh",
+          "contribution": 0.35423588257299443
+        },
+        {
+          "field": "current_address_months_count",
+          "value": 60,
+          "contribution": 0.3422521190773849
+        },
+        {
+          "field": "employment_status",
+          "value": "CB",
+          "contribution": -0.3207828710991572
+        }
+      ]
     },
     {
       "application": {
@@ -412,7 +446,24 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.0029145275843416745
+      "fraud_score": 0.0029145275843416745,
+      "top_factors": [
+        {
+          "field": "prev_address_months_count",
+          "value": 20,
+          "contribution": -0.5860808337798542
+        },
+        {
+          "field": "device_os",
+          "value": "other",
+          "contribution": -0.25678688443916825
+        },
+        {
+          "field": "current_address_months_count",
+          "value": null,
+          "contribution": -0.21860476396777243
+        }
+      ]
     },
     {
       "application": {
@@ -446,7 +497,24 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.018881510550924557
+      "fraud_score": 0.018881510550924557,
+      "top_factors": [
+        {
+          "field": "device_os",
+          "value": "windows",
+          "contribution": 0.656361672743322
+        },
+        {
+          "field": "prev_address_months_count",
+          "value": 20,
+          "contribution": -0.5513500008892005
+        },
+        {
+          "field": "income",
+          "value": 0.9,
+          "contribution": 0.41443902140669053
+        }
+      ]
     },
     {
       "application": {
@@ -480,7 +548,24 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.003524042672971174
+      "fraud_score": 0.003524042672971174,
+      "top_factors": [
+        {
+          "field": "prev_address_months_count",
+          "value": 20,
+          "contribution": -0.5418339178988749
+        },
+        {
+          "field": "employment_status",
+          "value": "CE",
+          "contribution": -0.47554086461822737
+        },
+        {
+          "field": "housing_status",
+          "value": "BE",
+          "contribution": -0.3329360979299874
+        }
+      ]
     },
     {
       "application": {
@@ -514,7 +599,24 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": null
       },
-      "fraud_score": 0.006544286431342499
+      "fraud_score": 0.006544286431342499,
+      "top_factors": [
+        {
+          "field": "customer_age",
+          "value": 70,
+          "contribution": 0.7723879688099653
+        },
+        {
+          "field": "employment_status",
+          "value": "CF",
+          "contribution": -0.5703085837142956
+        },
+        {
+          "field": "prev_address_months_count",
+          "value": 20,
+          "contribution": -0.5167141094413038
+        }
+      ]
     },
     {
       "application": {
@@ -548,7 +650,24 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.0017506740840859789
+      "fraud_score": 0.0017506740840859789,
+      "top_factors": [
+        {
+          "field": "prev_address_months_count",
+          "value": 20,
+          "contribution": -0.46369656736880743
+        },
+        {
+          "field": "has_other_cards",
+          "value": 1,
+          "contribution": -0.44292267864781504
+        },
+        {
+          "field": "device_os",
+          "value": "macintosh",
+          "contribution": 0.30241485954460057
+        }
+      ]
     },
     {
       "application": {
@@ -582,7 +701,24 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.1326035278842982
+      "fraud_score": 0.1326035278842982,
+      "top_factors": [
+        {
+          "field": "proposed_credit_limit",
+          "value": 2100.0,
+          "contribution": 1.026585193640312
+        },
+        {
+          "field": "customer_age",
+          "value": 90,
+          "contribution": 0.7942360127643401
+        },
+        {
+          "field": "credit_risk_score",
+          "value": 300,
+          "contribution": 0.6573927897742979
+        }
+      ]
     },
     {
       "application": {
@@ -616,7 +752,24 @@
         "keep_alive_session": 0,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.007219950632644713
+      "fraud_score": 0.007219950632644713,
+      "top_factors": [
+        {
+          "field": "device_os",
+          "value": "windows",
+          "contribution": 0.7162103980630047
+        },
+        {
+          "field": "prev_address_months_count",
+          "value": 20,
+          "contribution": -0.48539009861539795
+        },
+        {
+          "field": "current_address_months_count",
+          "value": 60,
+          "contribution": 0.3564225144282606
+        }
+      ]
     },
     {
       "application": {
@@ -650,7 +803,24 @@
         "keep_alive_session": 1,
         "device_distinct_emails_8w": 1
       },
-      "fraud_score": 0.02690505497023797
+      "fraud_score": 0.02690505497023797,
+      "top_factors": [
+        {
+          "field": "current_address_months_count",
+          "value": 60,
+          "contribution": 0.367010168865442
+        },
+        {
+          "field": "phone_home_valid",
+          "value": 0,
+          "contribution": 0.2733071124807334
+        },
+        {
+          "field": "source",
+          "value": "TELEAPP",
+          "contribution": 0.2611736322463036
+        }
+      ]
     },
     {
       "application": {
@@ -684,7 +854,24 @@
         "keep_alive_session": 0,
         "device_distinct_emails_8w": 2
       },
-      "fraud_score": 0.8715404749019353
+      "fraud_score": 0.8715404749019353,
+      "top_factors": [
+        {
+          "field": "proposed_credit_limit",
+          "value": 2000.0,
+          "contribution": 1.0741133565041023
+        },
+        {
+          "field": "housing_status",
+          "value": "BA",
+          "contribution": 0.7839760894010589
+        },
+        {
+          "field": "device_distinct_emails_8w",
+          "value": 2,
+          "contribution": 0.7469042188448578
+        }
+      ]
     }
   ]
 }

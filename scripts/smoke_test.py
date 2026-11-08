@@ -2,7 +2,7 @@
 
 Checks that the service at the URL serves the committed Model Version: ``/health``
 names it, ``/predict`` scores one Pass and one Review reference Application from its
-metadata to the Fraud Scores and Decisions recorded at training time, and ``/docs``
+metadata to the Fraud Scores, Decisions and top factors recorded at training time, and ``/docs``
 loads. Exits non-zero on the first failure. Standard library only, so it runs on a bare
 CI runner without installing the project.
 """
@@ -80,7 +80,9 @@ def main(base_url: str) -> None:
             and scored.get("decision") == decision
             and bool(scored.get("request_id"))
             and isinstance(fraud_score, float)
-            and math.isclose(fraud_score, reference["fraud_score"], rel_tol=1e-9, abs_tol=1e-12),
+            and math.isclose(fraud_score, reference["fraud_score"], rel_tol=1e-9, abs_tol=1e-12)
+            and [f["field"] for f in scored.get("top_factors", [])]
+            == [f["field"] for f in reference["top_factors"]],
             f"/predict scores a {decision} reference as at training time: {scored}",
         )
 

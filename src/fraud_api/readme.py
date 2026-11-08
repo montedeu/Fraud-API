@@ -112,6 +112,7 @@ def _curl(metadata: Metadata) -> str:
         "decision": "review" if reference["fraud_score"] >= metadata["threshold"] else "pass",
         "model_version": metadata["model_version"],
         "request_id": "…",
+        "top_factors": reference["top_factors"],
     }
     return (
         "```bash\n"
@@ -119,7 +120,7 @@ def _curl(metadata: Metadata) -> str:
         "  -H 'Content-Type: application/json' \\\n"
         f"  -d '{json.dumps(EXAMPLE_APPLICATION)}'\n"
         "```\n\n"
-        "```json\n" + json.dumps(response, ensure_ascii=False) + "\n```\n"
+        "```json\n" + json.dumps(response, ensure_ascii=False, indent=2) + "\n```\n"
     )
 
 
