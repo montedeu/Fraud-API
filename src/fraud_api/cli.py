@@ -1,4 +1,4 @@
-"""Command line: ``fraud-api download``, ``train``, ``serve`` and ``readme``."""
+"""Command line: ``fraud-api download``, ``train``, ``serve``, ``readme`` and ``monitor``."""
 
 import argparse
 import json
@@ -55,8 +55,15 @@ def main(argv: list[str] | None = None) -> None:
         "--check", action="store_true", help="only report whether the README is up to date"
     )
 
+    monitor_parser = commands.add_parser(
+        "monitor", help="report drift in the Prediction Log at $DATABASE_URL"
+    )
+    monitor_parser.add_argument("--days", type=int, default=7, help="how far back (default 7)")
+
     args = parser.parse_args(argv)
-    if args.command == "readme":
+    if args.command == "monitor":
+        _monitor(args.days)
+    elif args.command == "readme":
         _readme(check=args.check)
     elif args.command == "serve":
         uvicorn.run("fraud_api.service:app", host=args.host, port=args.port)
@@ -80,6 +87,24 @@ def main(argv: list[str] | None = None) -> None:
         for name, result in models.items():
             recall = {s: result["metrics"][s]["recall_at_5pct_fpr"] for s in ("validation", "test")}
             print(f"{name:24} {recall['validation']:10.3f} {recall['test']:10.3f}")
+
+
+def _monitor(days: int) -> None:
+    from fraud_api import monitoring
+
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        sys.exit("fraud-api monitor needs DATABASE_URL, the Prediction Log's connection string")
+    metadata = json.loads((MODEL_DIR / METADATA_FILE).read_text())
+    print(
+        monitoring.report(
+            monitoring.read_prediction_log(database_url, days),
+            metadata["monitoring"],
+            model_version=metadata["model_version"],
+            exclude=[r["application"] for r in metadata["reference_applications"]],
+        ),
+        end="",
+    )
 
 
 def _readme(*, check: bool) -> None:

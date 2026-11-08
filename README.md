@@ -174,6 +174,20 @@ gcloud run services update-traffic fraud-api --project fraud-api-g2z9q --region 
 
 To go forward again, run the same command with `--to-tags candidate=100`. Artifact Registry keeps the three most recent images, so the `previous` revision can always start.
 
+**Monitoring:** compare each day of the Prediction Log with the Validation Month, the Month the Threshold was chosen on. The report shows, per day:
+- the Applications scored;
+- the share sent to Review, next to the share the Threshold sent there in the Validation Month;
+- the mean Fraud Score;
+- the features whose population stability index passes the usual warning level.
+
+The Model Version's reference Applications are left out: the post-deploy smoke test sends them, and the `/docs` example is one of them. The connection string is read from Secret Manager into this one command's environment:
+
+```bash
+DATABASE_URL="$(gcloud secrets versions access latest --secret database-url --project fraud-api-g2z9q)" uv run fraud-api monitor --days 7
+```
+
+Nothing reads the Prediction Log over HTTP; the report runs wherever the connection string is available.
+
 ## Run it locally
 
 You need [uv](https://docs.astral.sh/uv/) and Python 3.12; Docker is optional.

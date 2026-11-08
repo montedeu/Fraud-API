@@ -9,7 +9,7 @@ import optuna
 import pandas as pd
 import sklearn
 
-from fraud_api import baselines, evaluation, reports, tuning
+from fraud_api import baselines, evaluation, monitoring, reports, tuning
 from fraud_api.application import CATEGORIES, FIELDS, Dataset, read_dataset
 from fraud_api.data import DATA_DIR, FILE_NAME, SHA256, verify
 from fraud_api.features import prepare
@@ -122,6 +122,7 @@ def train(
         "baselines": baseline_results,
         "experiments": experiments,
         "bootstrap": _bootstrap(splits["test"], test_scores, thresholds, seed, n_resamples),
+        "monitoring": _monitoring_reference(splits["validation"], booster, threshold),
         "data_sha256": expected_sha256,
         "optuna": {
             "n_trials": n_trials,
@@ -264,6 +265,19 @@ def _evaluate(
         },
     }
     return result, scores["test"]
+
+
+def _monitoring_reference(
+    validation: Dataset, booster: lgb.Booster, threshold: float
+) -> dict[str, Any]:
+    """What ``fraud-api monitor`` compares the Prediction Log with: the Validation Month's
+    feature distributions and the share of its Applications the Threshold sent to Review."""
+    review = _score(booster, validation.applications) >= threshold
+    return {
+        "reference_month": VALIDATION_MONTH,
+        "expected_review_share": float(np.mean(review)),
+        "features": monitoring.reference_distribution(validation.applications[FIELDS], CATEGORIES),
+    }
 
 
 def _bootstrap(

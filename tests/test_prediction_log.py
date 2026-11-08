@@ -1,6 +1,5 @@
 """Seam 1 with a real Postgres: every scored Application lands in the Prediction Log."""
 
-import os
 import socket
 import threading
 import time
@@ -9,7 +8,6 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx2 as httpx
 import psycopg
-import pytest
 import uvicorn
 from fastapi.testclient import TestClient
 
@@ -26,25 +24,6 @@ COLUMNS = {
     "latency_ms",
     "top_factors",
 }
-
-
-@pytest.fixture(scope="session")
-def postgres_url(tmp_path_factory):
-    """``$TEST_DATABASE_URL`` (CI's service container), else an embedded Postgres."""
-    if url := os.environ.get("TEST_DATABASE_URL"):
-        yield url
-        return
-    pgserver = pytest.importorskip("pgserver")
-    server = pgserver.get_server(tmp_path_factory.mktemp("pgdata"), cleanup_mode="stop")
-    yield server.get_uri()
-    server.cleanup()
-
-
-@pytest.fixture
-def database_url(postgres_url):
-    with psycopg.connect(postgres_url, autocommit=True) as connection:
-        connection.execute("DROP TABLE IF EXISTS prediction_log")
-    return postgres_url
 
 
 def _rows(url):

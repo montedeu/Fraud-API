@@ -145,6 +145,16 @@ def test_lightgbm_without_age_is_reported_on_every_split_and_never_sees_age(trai
         assert split.keys() >= REQUIRED_METRICS
 
 
+def test_metadata_has_the_validation_month_as_the_monitoring_reference(trained):
+    reference = model_version.load(trained).metadata["monitoring"]
+
+    assert reference["reference_month"] == 5
+    assert 0 < reference["expected_review_share"] < 1
+    assert list(reference["features"]) == FIELDS
+    for field, entry in reference["features"].items():
+        assert sum(entry["shares"].values()) == pytest.approx(1), field
+
+
 def test_metadata_has_paired_bootstrap_intervals_for_every_model(trained):
     bootstrap = model_version.load(trained).metadata["bootstrap"]
 
