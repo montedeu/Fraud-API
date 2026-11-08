@@ -42,9 +42,9 @@ curl -s https://fraud-api-r6bn3ptcuq-ew.a.run.app/predict \
 ```
 <!-- /generated:curl -->
 
-A Fraud Score ranks Applications; it is not a probability. An Application is sent to `review` when its Fraud Score reaches the Threshold, chosen so that 5% of Legitimate Applications in the Validation Month would be.
+A Fraud Score ranks Applications; it is not a probability. An Application is sent to `review` when its Fraud Score reaches the Threshold, chosen so that 5% of Legitimate Applications in the Validation Month would be. Send `null` for anything the Applicant did not provide. Unknown categories, out-of-range values, and missing or extra fields get a 422 that names the field.
 
-`top_factors` names the three fields that moved this Fraud Score the most, largest first, with the Applicant's value. Each `contribution` is LightGBM's own TreeSHAP value (`pred_contrib`) in log-odds, the units of the model's raw score: positive pushes towards Review, negative towards Pass. Added to the model's expected value, all fields' contributions give the raw score, and its logistic transform is the Fraud Score. They explain this model's ranking, not what causes fraud. Send `null` for anything the Applicant did not provide. Unknown categories, out-of-range values, and missing or extra fields get a 422 that names the field.
+`top_factors` names the Top Factors: the three fields that moved this Fraud Score the most, largest first, with the Applicant's value. Each `contribution` is LightGBM's own TreeSHAP value (`pred_contrib`) in log-odds, the units of the model's raw score: positive pushes towards Review, negative towards Pass. Added to the model's expected value, all fields' contributions give the raw score, and its logistic transform is the Fraud Score. They explain this model's ranking, not what causes fraud.
 
 The words used here (Application, Fraud Score, Threshold, Decision, Month…) are defined in [GLOSSARY.md](GLOSSARY.md).
 

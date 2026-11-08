@@ -33,11 +33,16 @@ CREATE TABLE IF NOT EXISTS prediction_log (
     application   jsonb NOT NULL,
     fraud_score   double precision NOT NULL,
     decision      text NOT NULL CHECK (decision IN ('pass', 'review')),
-    latency_ms    double precision NOT NULL,
-    top_factors   jsonb
+    latency_ms    double precision NOT NULL
 )
 """
-# Tables created before top_factors existed gain the column; their old rows keep NULL.
+# Added after the first release. Checked first, so the ALTER (which takes an exclusive
+# lock even when the column exists) runs once per table, ever; old rows keep NULL.
+HAS_TOP_FACTORS = """
+SELECT 1 FROM information_schema.columns
+WHERE table_schema = current_schema() AND table_name = 'prediction_log'
+  AND column_name = 'top_factors'
+"""
 ADD_TOP_FACTORS = "ALTER TABLE prediction_log ADD COLUMN IF NOT EXISTS top_factors jsonb"
 
 INSERT = """
@@ -148,8 +153,10 @@ class PredictionLog:
 
     def _ensure_table(self) -> None:
         if not self._table_ready:
-            self._connected().execute(CREATE_TABLE)
-            self._connected().execute(ADD_TOP_FACTORS)
+            connection = self._connected()
+            connection.execute(CREATE_TABLE)
+            if connection.execute(HAS_TOP_FACTORS).fetchone() is None:
+                connection.execute(ADD_TOP_FACTORS)
             self._table_ready = True
 
     def _connected(self) -> psycopg.Connection:

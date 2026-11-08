@@ -87,13 +87,23 @@ def test_reference_fraud_scores_match_the_loaded_model(trained):
     assert scores == pytest.approx([r["fraud_score"] for r in references], rel=1e-12)
 
 
-def test_reference_top_factors_match_the_loaded_model(trained):
+def test_contributions_add_up_to_the_fraud_score(trained, dataset_path):
+    # Every field's contribution plus the expected value is the raw score (log-odds),
+    # and the Fraud Score is its logistic transform.
     loaded = model_version.load(trained)
+    applications = _month(dataset_path, 6).applications.head(50)
 
-    for reference in loaded.metadata["reference_applications"]:
-        contributions = loaded.contributions(pd.DataFrame([reference["application"]]))
-        expected = model_version.top_factors(contributions.iloc[0], reference["application"])
-        assert reference["top_factors"] == expected
+    raw = loaded.contributions(applications).sum(axis=1).to_numpy()
+
+    assert 1 / (1 + np.exp(-raw)) == pytest.approx(loaded.score(applications), rel=1e-9)
+
+
+def test_each_reference_application_records_its_top_factors(trained):
+    for reference in model_version.load(trained).metadata["reference_applications"]:
+        factors = reference["top_factors"]
+
+        assert len(factors) == model_version.TOP_FACTOR_COUNT
+        assert all(reference["application"][f["field"]] == f["value"] for f in factors)
 
 
 def test_threshold_gives_5_percent_fpr_on_the_validation_month(trained, dataset_path):

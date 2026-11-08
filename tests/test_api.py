@@ -1,11 +1,9 @@
 """Seam 1: the HTTP API, against the committed Model Version."""
 
 import json
-import math
 import shutil
 import uuid
 
-import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -96,27 +94,18 @@ def test_training_and_serving_give_the_same_top_factors(client):
             assert served["contribution"] == pytest.approx(trained["contribution"], rel=1e-9)
 
 
-def test_contributions_add_up_to_the_fraud_score(client):
-    # Every field's contribution plus the expected value is the raw score (log-odds),
-    # and the Fraud Score is its logistic transform.
-    for reference in COMMITTED.metadata["reference_applications"]:
-        fraud_score = client.post("/predict", json=reference["application"]).json()["fraud_score"]
-        contributions = COMMITTED.contributions(
-            pd.DataFrame([reference["application"]], columns=FIELDS)
-        )
+def test_top_factors_report_a_missing_value_as_null(client):
+    with_null = [
+        r
+        for r in COMMITTED.metadata["reference_applications"]
+        if any(f["value"] is None for f in r["top_factors"])
+    ]
+    assert with_null, "a reference Application must have a missing value among its top factors"
 
-        raw = contributions.sum(axis=1).iloc[0]
-        assert 1 / (1 + math.exp(-raw)) == pytest.approx(fraud_score, rel=1e-9)
+    for reference in with_null:
+        factors = client.post("/predict", json=reference["application"]).json()["top_factors"]
 
-
-def test_top_factors_name_null_values_too(client):
-    nulls = {field: None for field in [*SENTINEL_FIELDS, "intended_balcon_amount"]}
-
-    factors = client.post("/predict", json=_with(**nulls)).json()["top_factors"]
-
-    assert all(
-        f["value"] == nulls.get(f["field"], EXAMPLE_APPLICATION[f["field"]]) for f in factors
-    )
+        assert [f["value"] for f in factors] == [f["value"] for f in reference["top_factors"]]
 
 
 def test_accepts_null_for_every_field_that_may_be_missing(client):
@@ -221,3 +210,12 @@ def test_docs_show_an_example_application(client):
     schema = client.get("/openapi.json").json()
 
     assert schema["components"]["schemas"]["ApplicationIn"]["examples"] == [EXAMPLE_APPLICATION]
+
+
+def test_docs_show_the_example_application_s_real_answer(client):
+    [example] = client.get("/openapi.json").json()["components"]["schemas"]["Scored"]["examples"]
+    answer = client.post("/predict", json=EXAMPLE_APPLICATION).json()
+
+    assert example.keys() == answer.keys()
+    assert example["fraud_score"] == answer["fraud_score"]
+    assert example["top_factors"] == answer["top_factors"]

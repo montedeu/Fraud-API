@@ -1,4 +1,5 @@
-"""The scoring service: POST an Application, get a Fraud Score and a Decision."""
+"""The scoring service: POST an Application, get a Fraud Score, a Decision and the top
+factors behind it."""
 
 import math
 import os
@@ -18,7 +19,7 @@ from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from fraud_api import model_version, protection
-from fraud_api.application import CATEGORIES, FIELDS, ApplicationIn, to_frame
+from fraud_api.application import CATEGORIES, EXAMPLE_APPLICATION, FIELDS, ApplicationIn, to_frame
 from fraud_api.prediction_log import DATABASE_URL_ENV, Prediction, PredictionLog
 
 MODEL_DIR_ENV = "FRAUD_API_MODEL_DIR"
@@ -30,8 +31,8 @@ class Factor(BaseModel):
     field: str = Field(description="An Application field.")
     value: str | int | float | None = Field(description="The Applicant's value; null if missing.")
     contribution: float = Field(
-        description="How far this field moved the score, in log-odds (not a probability). "
-        "Positive pushes towards Review, negative towards Pass."
+        description="How far this field moved the model's raw score, in log-odds (not a "
+        "probability). Positive pushes towards Review, negative towards Pass."
     )
 
 
@@ -41,8 +42,8 @@ class Scored(BaseModel):
     model_version: str
     request_id: uuid.UUID
     top_factors: list[Factor] = Field(
-        description=f"The {model_version.TOP_FACTORS} fields that moved this Fraud Score the "
-        "most, largest first."
+        description=f"The {model_version.TOP_FACTOR_COUNT} fields that moved this Fraud Score "
+        "the most, largest first."
     )
 
 
@@ -108,16 +109,15 @@ def create_app(
         application: ApplicationIn, request: Request, background: BackgroundTasks
     ) -> Scored:
         model: model_version.ModelVersion = request.app.state.model
-        applications = to_frame([application])
-        fraud_score = float(model.score(applications)[0])
+        fraud_score = float(model.score(to_frame([application]))[0])
         submitted = application.model_dump()
-        factors = model_version.top_factors(model.contributions(applications).iloc[0], submitted)
+        [factors] = model.top_factors([submitted])
         scored = Scored(
             fraud_score=fraud_score,
             decision="review" if fraud_score >= model.threshold else "pass",
             model_version=model.id,
             request_id=uuid.uuid4(),
-            top_factors=[Factor(**factor) for factor in factors],
+            top_factors=factors,
         )
         prediction_log: PredictionLog = request.app.state.prediction_log
         if prediction_log.enabled:
@@ -136,6 +136,38 @@ def create_app(
                 ),
             )
         return scored
+
+    default_openapi = app.openapi
+
+    def openapi_with_an_example_response() -> dict[str, Any]:
+        """The schema, with the /docs example Application's real answer as the example
+        response (from the Model Version's reference Applications)."""
+        if app.openapi_schema is None:
+            schema = default_openapi()
+            model: model_version.ModelVersion = app.state.model
+            reference = next(
+                (
+                    r
+                    for r in model.metadata["reference_applications"]
+                    if r["application"] == EXAMPLE_APPLICATION
+                ),
+                None,
+            )
+            if reference is not None and "top_factors" in reference:
+                schema["components"]["schemas"]["Scored"]["examples"] = [
+                    {
+                        "fraud_score": reference["fraud_score"],
+                        "decision": "review"
+                        if reference["fraud_score"] >= model.threshold
+                        else "pass",
+                        "model_version": model.id,
+                        "request_id": "3f2b8c1e-0d4a-4e8b-9f6a-2c7d5e1b9a04",
+                        "top_factors": reference["top_factors"],
+                    }
+                ]
+        return app.openapi_schema or default_openapi()
+
+    app.openapi = openapi_with_an_example_response  # type: ignore[method-assign]
 
     @app.get("/health")
     def health(request: Request) -> Health:

@@ -13,7 +13,7 @@ from fraud_api import baselines, evaluation, reports, tuning
 from fraud_api.application import CATEGORIES, FIELDS, Dataset, read_dataset
 from fraud_api.data import DATA_DIR, FILE_NAME, SHA256, verify
 from fraud_api.features import prepare
-from fraud_api.model_version import MODEL_DIR, ModelVersion, contributions, top_factors, write
+from fraud_api.model_version import MODEL_DIR, ModelVersion, write
 
 TRAINING_MONTHS = (0, 1, 2, 3, 4)
 VALIDATION_MONTH = 5
@@ -92,8 +92,9 @@ def train(
     }
 
     references = reference_applications()
-    reference_scores = _score(booster, pd.DataFrame(references))
-    reference_contributions = contributions(booster, pd.DataFrame(references), FIELDS, CATEGORIES)
+    unwritten = ModelVersion(booster, {"features": FIELDS, "categories": CATEGORIES})
+    reference_scores = unwritten.score(pd.DataFrame(references))
+    reference_factors = unwritten.top_factors(references)
 
     metadata = {
         "threshold": threshold,
@@ -130,12 +131,10 @@ def train(
             "optuna_version": optuna.__version__,
         },
         "reference_applications": [
-            {
-                "application": application,
-                "fraud_score": float(score),
-                "top_factors": top_factors(reference_contributions.iloc[i], application),
-            }
-            for i, (application, score) in enumerate(zip(references, reference_scores, strict=True))
+            {"application": application, "fraud_score": float(score), "top_factors": factors}
+            for application, score, factors in zip(
+                references, reference_scores, reference_factors, strict=True
+            )
         ],
     }
     model = write(output_dir, booster, metadata)

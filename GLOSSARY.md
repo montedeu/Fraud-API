@@ -42,6 +42,10 @@ _Avoid_: approve, accept, allow
 The Decision to send an Application to manual checking because its Fraud Score reached the Threshold. An Application with this Decision is said to be flagged.
 _Avoid_: decline, reject, block, deny
 
+**Top Factor**:
+One of the few fields that moved an Application's Fraud Score the most, with how far it moved the model's raw score (its contribution, in log-odds). It explains the model's ranking, not what causes fraud.
+_Avoid_: reason, cause, probability contribution
+
 **Model Version**:
 A trained model together with its Threshold, identified so that every Decision can be traced to the model that made it.
 _Avoid_: release, build
