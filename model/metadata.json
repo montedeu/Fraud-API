@@ -174,6 +174,73 @@
       }
     }
   },
+  "experiments": {
+    "without_age": {
+      "settings": {
+        "features": [
+          "income",
+          "name_email_similarity",
+          "prev_address_months_count",
+          "current_address_months_count",
+          "days_since_request",
+          "intended_balcon_amount",
+          "payment_type",
+          "zip_count_4w",
+          "velocity_6h",
+          "velocity_24h",
+          "velocity_4w",
+          "bank_branch_count_8w",
+          "date_of_birth_distinct_emails_4w",
+          "employment_status",
+          "credit_risk_score",
+          "email_is_free",
+          "housing_status",
+          "phone_home_valid",
+          "phone_mobile_valid",
+          "bank_months_count",
+          "has_other_cards",
+          "proposed_credit_limit",
+          "foreign_request",
+          "source",
+          "session_length_in_minutes",
+          "device_os",
+          "keep_alive_session",
+          "device_distinct_emails_8w"
+        ],
+        "lightgbm": "the served model's tuned parameters and tree count"
+      },
+      "threshold": 0.10673303785409785,
+      "metrics": {
+        "training": {
+          "applications": 675666,
+          "fraudulent_applications": 6740,
+          "recall_at_5pct_fpr": 0.6241839762611276,
+          "recall_at_threshold": 0.6615727002967359,
+          "fpr_at_threshold": 0.059873588408882294,
+          "pr_auc": 0.1966695969068533,
+          "fpr_ratio": 0.3498797373658772
+        },
+        "validation": {
+          "applications": 119323,
+          "fraudulent_applications": 1411,
+          "recall_at_5pct_fpr": 0.5393338058114813,
+          "recall_at_threshold": 0.5393338058114813,
+          "fpr_at_threshold": 0.04999491145939344,
+          "pr_auc": 0.19188722856949847,
+          "fpr_ratio": 0.4415710902626892
+        },
+        "test": {
+          "applications": 205011,
+          "fraudulent_applications": 2878,
+          "recall_at_5pct_fpr": 0.5472550382209868,
+          "recall_at_threshold": 0.5788742182070883,
+          "fpr_at_threshold": 0.05922832986202154,
+          "pr_auc": 0.19356402873251777,
+          "fpr_ratio": 0.42404757450424635
+        }
+      }
+    }
+  },
   "data_sha256": "7bf10a37ce07e72e14c1b09e5efee3d27261baff4facc7da767b0474dcf9b809",
   "optuna": {
     "n_trials": 50,

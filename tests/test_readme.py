@@ -33,3 +33,20 @@ def test_a_readme_without_a_generated_part_is_refused():
 
     with pytest.raises(ValueError, match="test-results"):
         readme.render(without_results, METADATA)
+
+
+@pytest.mark.parametrize(
+    ("served", "without_age", "wording"),
+    [
+        (0.32, 0.42, "raises the FPR Ratio from 0.32 to 0.42"),
+        (0.42, 0.32, "lowers the FPR Ratio from 0.42 to 0.32"),
+        (0.321, 0.324, "leaves the FPR Ratio at 0.32"),
+    ],
+)
+def test_the_without_age_wording_follows_the_numbers(served, without_age, wording):
+    current = (ROOT / readme.README).read_text()
+    changed = copy.deepcopy(METADATA)
+    changed["metrics"]["test"]["fpr_ratio"] = served
+    changed["experiments"]["without_age"]["metrics"]["test"]["fpr_ratio"] = without_age
+
+    assert wording in readme.render(current, changed)

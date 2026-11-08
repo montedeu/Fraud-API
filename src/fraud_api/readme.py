@@ -27,6 +27,9 @@ _MODELS: dict[str, Callable[[Metadata], Metadata]] = {
     "LightGBM (served)": lambda metadata: metadata,
     "Logistic regression": lambda metadata: metadata["baselines"]["logistic_regression"],
     "`credit_risk_score` rule": lambda metadata: metadata["baselines"]["credit_risk_score_rule"],
+    "LightGBM without `customer_age` (experiment)": lambda metadata: metadata["experiments"][
+        "without_age"
+    ],
 }
 
 
@@ -204,6 +207,38 @@ def _discussion(metadata: Metadata) -> str:
     )
 
 
+def _without_age(metadata: Metadata) -> str:
+    served = _metrics(metadata, "LightGBM (served)", "test")
+    without_age = _metrics(metadata, "LightGBM without `customer_age` (experiment)", "test")
+    before, after = round(served["fpr_ratio"], 2), round(without_age["fpr_ratio"], 2)
+    if after == before:
+        ratio = f"leaves the FPR Ratio at {after:.2f}"
+    else:
+        moved = "raises" if after > before else "lowers"
+        ratio = f"{moved} the FPR Ratio from {before:.2f} to {after:.2f}"
+    if 0 < after < 1:
+        ratio += (
+            f": one Age Group's Legitimate Applications are still flagged about "
+            f"{1 / after:.1f} times as often as the other's"
+        )
+    frauds = round(
+        abs(without_age["recall_at_5pct_fpr"] - served["recall_at_5pct_fpr"])
+        * served["fraudulent_applications"]
+    )
+    return (
+        "Measured, in the row *LightGBM without `customer_age`* above: the same LightGBM "
+        "with the served model's parameters and tree count, minus the one feature. On the "
+        "Test Months, dropping age changes Recall@5%FPR by "
+        f"{_points(without_age['recall_at_5pct_fpr'], served['recall_at_5pct_fpr'])} "
+        f"(about {frauds} of {served['fraudulent_applications']:,} Fraudulent Applications) "
+        f"and PR-AUC from {served['pr_auc']:.3f} to {without_age['pr_auc']:.3f}, and it "
+        f"{ratio}. That is one fit with one seed, with parameters tuned with age, so small "
+        "differences may be noise. The served model keeps "
+        "age; whether to drop it is a decision for "
+        "[ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md).\n"
+    )
+
+
 def _limits(metadata: Metadata) -> str:
     return (
         f"- **Rate limit.** `/predict` allows {protection.RATE_LIMIT_PER_MINUTE} requests a "
@@ -225,5 +260,6 @@ _PARTS: dict[str, Callable[[Metadata], str]] = {
     "validation-results": _validation_results,
     "tuning": _tuning,
     "discussion": _discussion,
+    "without-age": _without_age,
     "limits": _limits,
 }

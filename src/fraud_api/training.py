@@ -19,6 +19,8 @@ TRAINING_MONTHS = (0, 1, 2, 3, 4)
 VALIDATION_MONTH = 5
 TEST_MONTHS = (6, 7)
 SEED = 42
+FEATURES_WITHOUT_AGE = [field for field in FIELDS if field != "customer_age"]
+"""The features of the experiment that measures what dropping age does (ADR 0003)."""
 
 
 def train(
@@ -36,7 +38,8 @@ def train(
     ``reports_dir``.
 
     The two baselines go through the same protocol, each with its own Threshold, and are
-    reported under ``baselines`` in the metadata. Only LightGBM is written as a model.
+    reported under ``baselines`` in the metadata. So is LightGBM without ``customer_age``,
+    under ``experiments``. Only the served LightGBM is written as a model.
     """
     if n_trials < tuning.MIN_TRIALS:
         raise ValueError(f"n_trials must be at least {tuning.MIN_TRIALS}, got {n_trials}")
@@ -64,6 +67,30 @@ def train(
         "credit_risk_score_rule": baselines.credit_risk_score_rule,
     }
 
+    # Same parameters and tree count as the served model, so the feature is the only
+    # difference. Its FPR Ratio is still measured on the Age Groups in the data.
+    without_age = lgb.train(
+        tuned.params,
+        lgb.Dataset(
+            prepare(training.applications, FEATURES_WITHOUT_AGE, CATEGORIES),
+            label=training.labels,
+        ),
+        num_boost_round=tuned.num_boost_round,
+    )
+    experiments = {
+        "without_age": {
+            "settings": {
+                # Read back from the trained model, not from the list it was given.
+                "features": without_age.feature_name(),
+                "lightgbm": "the served model's tuned parameters and tree count",
+            },
+            **_evaluate(
+                lambda applications: _score(without_age, applications, FEATURES_WITHOUT_AGE),
+                splits,
+            ),
+        }
+    }
+
     references = reference_applications()
     reference_scores = _score(booster, pd.DataFrame(references))
 
@@ -76,6 +103,7 @@ def train(
             name: {"settings": baselines.SETTINGS[name], **_evaluate(scorer, splits)}
             for name, scorer in baseline_scorers.items()
         },
+        "experiments": experiments,
         "data_sha256": expected_sha256,
         "optuna": {
             "n_trials": n_trials,
@@ -196,8 +224,10 @@ def reference_applications() -> list[dict[str, Any]]:
     return applications
 
 
-def _score(booster: lgb.Booster, applications: pd.DataFrame) -> np.ndarray:
-    return booster.predict(prepare(applications, FIELDS, CATEGORIES))
+def _score(
+    booster: lgb.Booster, applications: pd.DataFrame, features: list[str] = FIELDS
+) -> np.ndarray:
+    return booster.predict(prepare(applications, features, CATEGORIES))
 
 
 def _evaluate(scorer: baselines.Scorer, splits: dict[str, Dataset]) -> dict[str, Any]:
