@@ -217,5 +217,6 @@ def test_docs_show_the_example_application_s_real_answer(client):
     answer = client.post("/predict", json=EXAMPLE_APPLICATION).json()
 
     assert example.keys() == answer.keys()
-    assert example["fraud_score"] == answer["fraud_score"]
-    assert example["top_factors"] == answer["top_factors"]
+    # As JSON text, so 20 and 20.0 count as different.
+    assert json.dumps(example["fraud_score"]) == json.dumps(answer["fraud_score"])
+    assert json.dumps(example["top_factors"]) == json.dumps(answer["top_factors"])

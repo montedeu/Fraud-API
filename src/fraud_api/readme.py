@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from fraud_api import protection
-from fraud_api.application import EXAMPLE_APPLICATION
+from fraud_api.application import EXAMPLE_APPLICATION, ApplicationIn
 
 README = Path("README.md")
 SERVICE_URL = "https://fraud-api-r6bn3ptcuq-ew.a.run.app"
@@ -107,12 +107,16 @@ def _curl(metadata: Metadata) -> str:
     reference = next(
         r for r in metadata["reference_applications"] if r["application"] == EXAMPLE_APPLICATION
     )
+    answered = ApplicationIn.model_validate(EXAMPLE_APPLICATION).model_dump()
     response = {
         "fraud_score": reference["fraud_score"],
         "decision": "review" if reference["fraud_score"] >= metadata["threshold"] else "pass",
         "model_version": metadata["model_version"],
         "request_id": "…",
-        "top_factors": reference["top_factors"],
+        # Values as the API answers them: validated, so 20 comes back as 20.0.
+        "top_factors": [
+            factor | {"value": answered[factor["field"]]} for factor in reference["top_factors"]
+        ],
     }
     return (
         "```bash\n"
@@ -197,7 +201,7 @@ def _discussion(metadata: Metadata) -> str:
         f"Test Months is {ratio:.2f}: Legitimate Applications from one Age Group are "
         f"flagged {how_often} as from the other. Fraud rises with age (EDA section 6), and "
         f"the model learns it. The BAF authors report {BAF_REFERENCE_FPR_RATIO} for their "
-        "best models; this one is published rather than hidden "
+        "best models; this model's is published rather than hidden "
         "([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)).\n"
         f"- **Drift between Months.** The share of Fraudulent Applications {trend} from "
         f"{_pct(rates[0])} in the Training Months and {_pct(rates[1])} in the Validation "
@@ -234,9 +238,8 @@ def _without_age(metadata: Metadata) -> str:
         f"(about {frauds} of {served['fraudulent_applications']:,} Fraudulent Applications) "
         f"and PR-AUC from {served['pr_auc']:.3f} to {without_age['pr_auc']:.3f}, and it "
         f"{ratio}. That is one fit with one seed, with parameters tuned with age, so small "
-        "differences may be noise. The served model keeps "
-        "age; whether to drop it is a decision for "
-        "[ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md).\n"
+        "differences may be noise. Reviewed with these numbers, the served model keeps age "
+        "([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)).\n"
     )
 
 

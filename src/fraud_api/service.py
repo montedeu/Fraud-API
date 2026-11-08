@@ -140,32 +140,24 @@ def create_app(
     default_openapi = app.openapi
 
     def openapi_with_an_example_response() -> dict[str, Any]:
-        """The schema, with the /docs example Application's real answer as the example
-        response (from the Model Version's reference Applications)."""
+        """The schema, with the /docs example Application's real answer, scored by the
+        loaded Model Version exactly as /predict would, as the example response."""
         if app.openapi_schema is None:
             schema = default_openapi()
             model: model_version.ModelVersion = app.state.model
-            reference = next(
-                (
-                    r
-                    for r in model.metadata["reference_applications"]
-                    if r["application"] == EXAMPLE_APPLICATION
-                ),
-                None,
-            )
-            if reference is not None and "top_factors" in reference:
-                schema["components"]["schemas"]["Scored"]["examples"] = [
-                    {
-                        "fraud_score": reference["fraud_score"],
-                        "decision": "review"
-                        if reference["fraud_score"] >= model.threshold
-                        else "pass",
-                        "model_version": model.id,
-                        "request_id": "3f2b8c1e-0d4a-4e8b-9f6a-2c7d5e1b9a04",
-                        "top_factors": reference["top_factors"],
-                    }
-                ]
-        return app.openapi_schema or default_openapi()
+            example = ApplicationIn.model_validate(EXAMPLE_APPLICATION)
+            fraud_score = float(model.score(to_frame([example]))[0])
+            [factors] = model.top_factors([example.model_dump()])
+            schema["components"]["schemas"]["Scored"]["examples"] = [
+                {
+                    "fraud_score": fraud_score,
+                    "decision": "review" if fraud_score >= model.threshold else "pass",
+                    "model_version": model.id,
+                    "request_id": "3f2b8c1e-0d4a-4e8b-9f6a-2c7d5e1b9a04",
+                    "top_factors": factors,
+                }
+            ]
+        return app.openapi_schema
 
     app.openapi = openapi_with_an_example_response  # type: ignore[method-assign]
 
