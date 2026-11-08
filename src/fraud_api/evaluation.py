@@ -7,7 +7,9 @@ Threshold.
 """
 
 import math
+from collections.abc import Mapping
 from fractions import Fraction
+from typing import Any
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -18,6 +20,9 @@ TARGET_FPR = 0.05
 
 AGE_GROUP_BOUNDARY = 50
 """Applicants with ``customer_age`` at or above this form one Age Group, the rest the other."""
+
+BOOTSTRAP_RESAMPLES = 1000
+CONFIDENCE = 0.95
 
 
 def threshold_for_fpr(
@@ -95,6 +100,64 @@ def fpr_ratio(
     )
     lower, higher = sorted(rates)
     return 1.0 if higher == 0 else lower / higher
+
+
+def paired_bootstrap(
+    labels: ArrayLike,
+    customer_age: ArrayLike,
+    scores: Mapping[str, ArrayLike],
+    thresholds: Mapping[str, float],
+    *,
+    reference: str,
+    n_resamples: int = BOOTSTRAP_RESAMPLES,
+    seed: int = 0,
+    confidence: float = CONFIDENCE,
+) -> dict[str, dict[str, Any]]:
+    """Percentile intervals for Recall@5%FPR, PR-AUC and the FPR Ratio of every model, and
+    for the difference between ``reference`` and each other model.
+
+    Applications are resampled with replacement, the same resamples for every model, so
+    the differences are paired. Each model keeps its own fixed Threshold for the FPR
+    Ratio; Recall@5%FPR is recomputed on each resample by its definition. Returns
+    ``{model: {"interval": {metric: [low, high]}, "difference": {...}}}``; the
+    ``reference`` model has no ``difference``.
+    """
+    y = np.asarray(labels).astype(int)
+    age = np.asarray(customer_age, dtype=float)
+    columns = {name: np.asarray(s, dtype=float) for name, s in scores.items()}
+    if reference not in columns:
+        raise ValueError(f"reference {reference!r} is not one of the models")
+    rng = np.random.default_rng(seed)
+    draws: dict[str, list[dict[str, float]]] = {name: [] for name in columns}
+    for _ in range(n_resamples):
+        sample = rng.integers(0, y.size, y.size)
+        ys, ages = y[sample], age[sample]
+        for name, s in columns.items():
+            draws[name].append(
+                {
+                    "recall_at_5pct_fpr": recall_at_fpr(ys, s[sample]),
+                    "pr_auc": pr_auc(ys, s[sample]),
+                    "fpr_ratio": fpr_ratio(ys, s[sample], ages, thresholds[name]),
+                }
+            )
+    tail = (1 - confidence) / 2 * 100
+
+    def interval(values: list[float]) -> list[float]:
+        low, high = np.percentile(values, [tail, 100 - tail])
+        return [float(low), float(high)]
+
+    metrics = list(draws[reference][0])
+    result: dict[str, dict[str, Any]] = {}
+    for name in columns:
+        result[name] = {"interval": {m: interval([d[m] for d in draws[name]]) for m in metrics}}
+        if name != reference:
+            result[name]["difference"] = {
+                m: interval(
+                    [r[m] - o[m] for r, o in zip(draws[reference], draws[name], strict=True)]
+                )
+                for m in metrics
+            }
+    return result
 
 
 def _validate(labels: ArrayLike, scores: ArrayLike) -> tuple[NDArray[np.int_], NDArray[np.float64]]:

@@ -31,6 +31,7 @@ def train(
     expected_sha256: str = SHA256,
     seed: int = SEED,
     n_trials: int = tuning.N_TRIALS,
+    n_resamples: int = evaluation.BOOTSTRAP_RESAMPLES,
 ) -> ModelVersion:
     """Tune LightGBM on the Tuning Month, train it on the Training Months with the best
     configuration, choose the Threshold on the Validation Month, score the Test Months
@@ -58,13 +59,25 @@ def train(
     )
     importances = tuning.param_importances(tuned.study, seed)
 
-    served = _evaluate(lambda applications: _score(booster, applications), splits)
+    # Each model's Test Months scores, kept for the paired bootstrap at the end.
+    test_scores: dict[str, np.ndarray] = {}
+
+    def evaluated(name: str, scorer: baselines.Scorer) -> dict[str, Any]:
+        result, test_scores[name] = _evaluate(scorer, splits)
+        return result
+
+    served = evaluated("lightgbm", lambda applications: _score(booster, applications))
     threshold = served["threshold"]
     baseline_scorers: dict[str, baselines.Scorer] = {
         "logistic_regression": baselines.fit_logistic_regression(
             training.applications, training.labels
         ),
         "credit_risk_score_rule": baselines.credit_risk_score_rule,
+    }
+
+    baseline_results = {
+        name: {"settings": baselines.SETTINGS[name], **evaluated(name, scorer)}
+        for name, scorer in baseline_scorers.items()
     }
 
     # Same parameters and tree count as the served model, so the feature is the only
@@ -84,9 +97,9 @@ def train(
                 "features": without_age.feature_name(),
                 "lightgbm": "the served model's tuned parameters and tree count",
             },
-            **_evaluate(
+            **evaluated(
+                "without_age",
                 lambda applications: _score(without_age, applications, FEATURES_WITHOUT_AGE),
-                splits,
             ),
         }
     }
@@ -101,11 +114,19 @@ def train(
         "features": FIELDS,
         "categories": CATEGORIES,
         "metrics": served["metrics"],
-        "baselines": {
-            name: {"settings": baselines.SETTINGS[name], **_evaluate(scorer, splits)}
-            for name, scorer in baseline_scorers.items()
-        },
+        "baselines": baseline_results,
         "experiments": experiments,
+        "bootstrap": _bootstrap(
+            splits["test"],
+            test_scores,
+            {
+                "lightgbm": threshold,
+                **{name: result["threshold"] for name, result in baseline_results.items()},
+                "without_age": experiments["without_age"]["threshold"],
+            },
+            seed,
+            n_resamples,
+        ),
         "data_sha256": expected_sha256,
         "optuna": {
             "n_trials": n_trials,
@@ -234,15 +255,45 @@ def _score(
     return booster.predict(prepare(applications, features, CATEGORIES))
 
 
-def _evaluate(scorer: baselines.Scorer, splits: dict[str, Dataset]) -> dict[str, Any]:
-    """Threshold at 5% FPR on the Validation Month, then metrics on every split."""
+def _evaluate(
+    scorer: baselines.Scorer, splits: dict[str, Dataset]
+) -> tuple[dict[str, Any], np.ndarray]:
+    """Threshold at 5% FPR on the Validation Month, then metrics on every split; also the
+    Test Months' scores."""
     scores = {name: scorer(split.applications) for name, split in splits.items()}
     threshold = evaluation.threshold_for_fpr(splits["validation"].labels, scores["validation"])
-    return {
+    result = {
         "threshold": threshold,
         "metrics": {
             name: _metrics(split, scores[name], threshold) for name, split in splits.items()
         },
+    }
+    return result, scores["test"]
+
+
+def _bootstrap(
+    test: Dataset,
+    test_scores: dict[str, np.ndarray],
+    thresholds: dict[str, float],
+    seed: int,
+    n_resamples: int,
+) -> dict[str, Any]:
+    """Paired bootstrap intervals on the Test Months, every model at its own fixed
+    Threshold, with differences against the served model."""
+    return {
+        "n_resamples": n_resamples,
+        "confidence": evaluation.CONFIDENCE,
+        "seed": seed,
+        "reference": "lightgbm",
+        "models": evaluation.paired_bootstrap(
+            test.labels,
+            test.applications["customer_age"].to_numpy(),
+            test_scores,
+            thresholds,
+            reference="lightgbm",
+            n_resamples=n_resamples,
+            seed=seed,
+        ),
     }
 
 

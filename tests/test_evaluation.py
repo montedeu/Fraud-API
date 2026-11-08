@@ -1,8 +1,10 @@
+import numpy as np
 import pytest
 
 from fraud_api.evaluation import (
     fpr_at,
     fpr_ratio,
+    paired_bootstrap,
     pr_auc,
     recall_at,
     recall_at_fpr,
@@ -170,3 +172,60 @@ class TestFprRatio:
     def test_needs_legitimate_applications_in_both_age_groups(self):
         with pytest.raises(ValueError):
             fpr_ratio([0, 0, 1], [0.1, 0.2, 0.9], [20, 30, 60], 0.5)
+
+
+class TestPairedBootstrap:
+    """Seam 3: the paired bootstrap over the Test Months."""
+
+    @staticmethod
+    def _sample(n=600, seed=7):
+        rng = np.random.default_rng(seed)
+        labels = (rng.random(n) < 0.15).astype(int)
+        ages = rng.choice([20, 30, 40, 50, 60, 70], size=n)
+        good = labels + rng.normal(0, 0.8, n)
+        weak = labels + rng.normal(0, 2.0, n)
+        return labels, ages, {"good": good, "weak": weak}
+
+    def _run(self, scores=None, seed=0):
+        labels, ages, default = self._sample()
+        scores = scores or default
+        thresholds = {name: threshold_for_fpr(labels, s) for name, s in scores.items()}
+        return (
+            labels,
+            ages,
+            scores,
+            thresholds,
+            paired_bootstrap(
+                labels, ages, scores, thresholds, reference="good", n_resamples=200, seed=seed
+            ),
+        )
+
+    def test_each_interval_contains_the_point_estimate(self):
+        labels, ages, scores, thresholds, result = self._run()
+
+        for name, s in scores.items():
+            point = {
+                "recall_at_5pct_fpr": recall_at_fpr(labels, s),
+                "pr_auc": pr_auc(labels, s),
+                "fpr_ratio": fpr_ratio(labels, s, ages, thresholds[name]),
+            }
+            for metric, value in point.items():
+                low, high = result[name]["interval"][metric]
+                assert low <= value <= high, (name, metric)
+
+    def test_the_same_seed_gives_the_same_intervals(self):
+        assert self._run(seed=3)[-1] == self._run(seed=3)[-1]
+        assert self._run(seed=3)[-1] != self._run(seed=4)[-1]
+
+    def test_identical_scores_differ_by_exactly_zero(self):
+        labels, _, default = self._sample()
+        result = self._run(scores={"good": default["good"], "copy": default["good"].copy()})[-1]
+
+        assert all(interval == [0.0, 0.0] for interval in result["copy"]["difference"].values())
+
+    def test_a_clearly_better_model_has_a_difference_interval_above_zero(self):
+        result = self._run()[-1]
+
+        low, _ = result["weak"]["difference"]["recall_at_5pct_fpr"]
+        assert low > 0
+        assert "difference" not in result["good"]
