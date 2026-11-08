@@ -29,7 +29,7 @@ def test_scores_a_valid_application(client):
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"fraud_score", "decision", "model_version", "request_id"}
+    assert set(body) == {"fraud_score", "decision", "model_version", "request_id", "top_factors"}
     assert 0 <= body["fraud_score"] <= 1
     assert body["decision"] in {"pass", "review"}
     assert body["model_version"] == COMMITTED.id
@@ -65,6 +65,47 @@ def test_training_and_serving_give_the_same_fraud_scores(client):
         body = client.post("/predict", json=reference["application"]).json()
 
         assert body["fraud_score"] == pytest.approx(reference["fraud_score"], rel=1e-9, abs=1e-12)
+
+
+@pytest.mark.parametrize(
+    "reference", COMMITTED.metadata["reference_applications"], ids=lambda r: str(r["fraud_score"])
+)
+def test_top_factors_are_the_three_largest_contributions_with_the_applicant_s_values(
+    client, reference
+):
+    application = reference["application"]
+    factors = client.post("/predict", json=application).json()["top_factors"]
+
+    assert len(factors) == 3
+    assert len({f["field"] for f in factors}) == 3
+    for factor in factors:
+        assert factor["value"] == application[factor["field"]]
+    sizes = [abs(f["contribution"]) for f in factors]
+    assert sizes == sorted(sizes, reverse=True)
+
+
+def test_training_and_serving_give_the_same_top_factors(client):
+    for reference in COMMITTED.metadata["reference_applications"]:
+        factors = client.post("/predict", json=reference["application"]).json()["top_factors"]
+
+        expected = reference["top_factors"]
+        assert [f["field"] for f in factors] == [f["field"] for f in expected]
+        for served, trained in zip(factors, expected, strict=True):
+            assert served["contribution"] == pytest.approx(trained["contribution"], rel=1e-9)
+
+
+def test_top_factors_report_a_missing_value_as_null(client):
+    with_null = [
+        r
+        for r in COMMITTED.metadata["reference_applications"]
+        if any(f["value"] is None for f in r["top_factors"])
+    ]
+    assert with_null, "a reference Application must have a missing value among its top factors"
+
+    for reference in with_null:
+        factors = client.post("/predict", json=reference["application"]).json()["top_factors"]
+
+        assert [f["value"] for f in factors] == [f["value"] for f in reference["top_factors"]]
 
 
 def test_accepts_null_for_every_field_that_may_be_missing(client):
@@ -169,3 +210,12 @@ def test_docs_show_an_example_application(client):
     schema = client.get("/openapi.json").json()
 
     assert schema["components"]["schemas"]["ApplicationIn"]["examples"] == [EXAMPLE_APPLICATION]
+
+
+def test_docs_show_the_example_application_s_real_answer(client):
+    [example] = client.get("/openapi.json").json()["components"]["schemas"]["Scored"]["examples"]
+    answer = client.post("/predict", json=EXAMPLE_APPLICATION).json()
+
+    assert example.keys() == answer.keys()
+    assert example["fraud_score"] == answer["fraud_score"]
+    assert example["top_factors"] == answer["top_factors"]

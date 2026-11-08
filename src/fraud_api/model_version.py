@@ -2,9 +2,10 @@
 
 import hashlib
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import lightgbm as lgb
 import numpy as np
@@ -17,6 +18,18 @@ METADATA_FILE = "metadata.json"
 MODEL_DIR = Path("model")
 SCORING_FIELDS = ("threshold", "features", "categories")
 """Metadata that changes what the model decides, so it is part of the Model Version id."""
+TOP_FACTOR_COUNT = 3
+"""How many top factors each scored Application gets."""
+EXPECTED_VALUE = "expected_value"
+"""The column of :meth:`ModelVersion.contributions` that holds the model's baseline."""
+
+
+class TopFactor(TypedDict):
+    field: str
+    value: Any
+    """The Applicant's value, ``None`` if missing."""
+    contribution: float
+    """How far this field moved the raw score, in log-odds; positive pushes towards Review."""
 
 
 @dataclass(frozen=True)
@@ -38,8 +51,44 @@ class ModelVersion:
         One thread by default: the service scores one Application per request, and an
         OpenMP team per request would only oversubscribe the CPU.
         """
-        features = prepare(applications, self.metadata["features"], self.metadata["categories"])
-        return self.booster.predict(features, num_threads=num_threads)
+        return self.booster.predict(self._prepare(applications), num_threads=num_threads)
+
+    def contributions(self, applications: pd.DataFrame) -> pd.DataFrame:
+        """How much each field moved each Application's raw score: LightGBM's own TreeSHAP
+        values (``pred_contrib``).
+
+        One column per feature plus ``expected_value``. Each row sums to the raw score, in
+        log-odds, and the Fraud Score is its logistic transform.
+        """
+        prepared = self._prepare(applications)
+        values = self.booster.predict(prepared, pred_contrib=True, num_threads=1)
+        return pd.DataFrame(
+            values, columns=[*prepared.columns, EXPECTED_VALUE], index=applications.index
+        )
+
+    def top_factors(self, applications: Sequence[Mapping[str, Any]]) -> list[list[TopFactor]]:
+        """For each Application, the fields with the largest absolute contribution, largest
+        first, each with the value as given in ``applications``."""
+        frame = pd.DataFrame(list(applications), columns=self.metadata["features"])
+        contributions = self.contributions(frame).drop(columns=EXPECTED_VALUE)
+        result = []
+        for application, (_, row) in zip(applications, contributions.iterrows(), strict=True):
+            # Stable, so ties keep the feature order whatever the platform.
+            order = np.argsort(-row.abs().to_numpy(), kind="stable")[:TOP_FACTOR_COUNT]
+            result.append(
+                [
+                    TopFactor(
+                        field=row.index[i],
+                        value=application[row.index[i]],
+                        contribution=float(row.iloc[i]),
+                    )
+                    for i in order
+                ]
+            )
+        return result
+
+    def _prepare(self, applications: pd.DataFrame) -> pd.DataFrame:
+        return prepare(applications, self.metadata["features"], self.metadata["categories"])
 
 
 def model_version_id(model_text: str, metadata: dict[str, Any]) -> str:
@@ -66,4 +115,8 @@ def load(directory: Path = MODEL_DIR) -> ModelVersion:
     metadata = json.loads((directory / METADATA_FILE).read_text())
     if metadata["model_version"] != model_version_id(model_text, metadata):
         raise ValueError(f"{directory} does not match its Model Version id")
-    return ModelVersion(lgb.Booster(model_str=model_text), metadata)
+    booster = lgb.Booster(model_str=model_text)
+    # Contributions are labelled by the metadata's feature order, so it must be the model's.
+    if booster.feature_name() != metadata["features"]:
+        raise ValueError(f"{directory}: the model's features differ from its metadata")
+    return ModelVersion(booster, metadata)

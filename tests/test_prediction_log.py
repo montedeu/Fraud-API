@@ -24,6 +24,7 @@ COLUMNS = {
     "fraud_score",
     "decision",
     "latency_ms",
+    "top_factors",
 }
 
 
@@ -71,6 +72,7 @@ def test_one_prediction_leaves_exactly_one_row_with_what_was_answered(database_u
     assert row["fraud_score"] == body["fraud_score"]
     assert row["decision"] == body["decision"]
     assert row["application"] == EXAMPLE_APPLICATION
+    assert row["top_factors"] == body["top_factors"]
     assert row["latency_ms"] > 0
     assert row["created_at"].tzinfo is not None
 
@@ -83,6 +85,28 @@ def test_the_table_holds_no_ip_address_or_headers(database_url):
 
     assert _columns(database_url) == COLUMNS
     assert "203.0.113.7" not in str(_rows(database_url))
+
+
+def test_a_table_from_before_top_factors_gains_the_column(database_url):
+    with psycopg.connect(database_url, autocommit=True) as connection:
+        connection.execute(
+            "CREATE TABLE prediction_log (request_id uuid PRIMARY KEY, created_at timestamptz "
+            "NOT NULL, model_version text NOT NULL, application jsonb NOT NULL, fraud_score "
+            "double precision NOT NULL, decision text NOT NULL, latency_ms double precision "
+            "NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO prediction_log VALUES (gen_random_uuid(), now(), 'old', '{}', 0.1, "
+            "'pass', 1.0)"
+        )
+
+    with TestClient(create_app(database_url=database_url)) as client:
+        client.post("/predict", json=EXAMPLE_APPLICATION)
+
+    assert _columns(database_url) == COLUMNS
+    old, new = sorted(_rows(database_url), key=lambda row: row["model_version"] != "old")
+    assert old["top_factors"] is None
+    assert len(new["top_factors"]) == 3
 
 
 def test_the_table_is_created_at_startup(database_url):

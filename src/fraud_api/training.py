@@ -92,7 +92,9 @@ def train(
     }
 
     references = reference_applications()
-    reference_scores = _score(booster, pd.DataFrame(references))
+    unwritten = ModelVersion(booster, {"features": FIELDS, "categories": CATEGORIES})
+    reference_scores = unwritten.score(pd.DataFrame(references))
+    reference_factors = unwritten.top_factors(references)
 
     metadata = {
         "threshold": threshold,
@@ -129,8 +131,10 @@ def train(
             "optuna_version": optuna.__version__,
         },
         "reference_applications": [
-            {"application": application, "fraud_score": float(score)}
-            for application, score in zip(references, reference_scores, strict=True)
+            {"application": application, "fraud_score": float(score), "top_factors": factors}
+            for application, score, factors in zip(
+                references, reference_scores, reference_factors, strict=True
+            )
         ],
     }
     model = write(output_dir, booster, metadata)

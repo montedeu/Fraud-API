@@ -16,11 +16,35 @@ curl -s https://fraud-api-r6bn3ptcuq-ew.a.run.app/predict \
 ```
 
 ```json
-{"fraud_score": 0.008908066429150555, "decision": "pass", "model_version": "lgbm-f5421b309a8c", "request_id": "…"}
+{
+  "fraud_score": 0.008908066429150555,
+  "decision": "pass",
+  "model_version": "lgbm-f5421b309a8c",
+  "request_id": "…",
+  "top_factors": [
+    {
+      "field": "housing_status",
+      "value": "BA",
+      "contribution": 0.9102531266329635
+    },
+    {
+      "field": "prev_address_months_count",
+      "value": 20,
+      "contribution": -0.5999459034527709
+    },
+    {
+      "field": "device_os",
+      "value": "linux",
+      "contribution": -0.3797511991667
+    }
+  ]
+}
 ```
 <!-- /generated:curl -->
 
 A Fraud Score ranks Applications; it is not a probability. An Application is sent to `review` when its Fraud Score reaches the Threshold, chosen so that 5% of Legitimate Applications in the Validation Month would be. Send `null` for anything the Applicant did not provide. Unknown categories, out-of-range values, and missing or extra fields get a 422 that names the field.
+
+`top_factors` names the Top Factors: the three fields that moved this Fraud Score the most, largest first, with the Applicant's value. Each `contribution` is LightGBM's own TreeSHAP value (`pred_contrib`) in log-odds, the units of the model's raw score: positive pushes towards Review, negative towards Pass. Added to the model's expected value, all fields' contributions give the raw score, and its logistic transform is the Fraud Score. They explain this model's ranking, not what causes fraud.
 
 The words used here (Application, Fraud Score, Threshold, Decision, Month…) are defined in [GLOSSARY.md](GLOSSARY.md).
 
