@@ -1,0 +1,3 @@
+# The EDA notebook is mostly embedded chart images; keep it out of GitHub's language
+# statistics so the repository reads as the Python project it is.
+*.ipynb linguist-detectable=false
