@@ -99,7 +99,7 @@ The [EDA notebook](notebooks/eda.ipynb) shows the data behind these choices; eac
 
 The API is public and unauthenticated by design, so a reviewer can try it in a minute. These are the risks that follow from that, and what bounds them.
 
-- **Abuse and cost.** Each revision is capped at one instance with 1 vCPU and 512 MiB ([`deploy.yml`](.github/workflows/deploy.yml)). Busy around the clock, one instance uses about 2.6 million vCPU-seconds a month: roughly **$45 a month** in compute at [Cloud Run's instance-based prices](https://cloud.google.com/run/pricing) (Tier 1, after the free tier). Normally only one revision is reachable. After a rollback, the `candidate` URL keeps the newer revision reachable too, which can double that.
+- **Abuse and cost.** Each revision is capped at one instance with 1 vCPU and 512 MiB ([`deploy.yml`](.github/workflows/deploy.yml)). Busy around the clock, one instance uses about 2.6 million vCPU-seconds a month, roughly $45 a month in compute at [Cloud Run's instance-based prices](https://cloud.google.com/run/pricing) (Tier 1, after the free tier). Two revisions are reachable: the live one, and the rollback target through its `previous` tag URL. So the compute ceiling is about **$90 a month**.
 - **Outbound traffic has no ceiling.** It is billed at about $0.12 per GiB. The largest public response, `/openapi.json`, is about 6 KB, so a million requests for it cost under a dollar, but a sustained flood has no upper bound. Two things answer that:
   - a GCP budget emails the owner at 50% and 100% of a small monthly amount;
   - the kill switch below takes the service off the internet in seconds. There is no automatic billing shutdown.
@@ -120,9 +120,9 @@ The service runs as `fraud-api` in project `fraud-api-g2z9q`, region `europe-wes
 1. builds and pushes the image;
 2. deploys it as a new revision with no traffic, tagged `candidate`;
 3. smoke-tests that revision ([`scripts/smoke_test.py`](scripts/smoke_test.py));
-4. only then moves all traffic to it, and smoke-tests again.
+4. only then moves all traffic to it, tags the revision that served before `previous`, and smoke-tests again.
 
-If any of that fails, the deploy puts traffic and the `candidate` tag back on the revision that served before, and deletes the failed one. So the newest revision is always one that passed. The very first deploy, which created the service, had nothing to fall back on. *Actions → Deploy → Run workflow* redeploys `main` without a commit.
+If any step fails, or the run is cancelled, the deploy puts traffic and the `candidate` tag back on the revision that served before. So `candidate` always names the last revision that passed, and `previous` the one before it. The very first deploy, which created the service, had nothing to fall back on. *Actions → Deploy → Run workflow* redeploys `main` without a commit.
 
 **Kill switch:** make the service internal-only. It stops answering the internet at once:
 
@@ -132,13 +132,13 @@ gcloud run services update fraud-api --project fraud-api-g2z9q --region europe-w
 
 To reopen it, run the same command with `--ingress all`.
 
-**Rollback:** send all traffic to the revision before the newest one (the newest is the one live):
+**Rollback:** send all traffic to the revision that served before the last deploy:
 
 ```bash
-gcloud run services update-traffic fraud-api --project fraud-api-g2z9q --region europe-west1 --to-revisions "$(gcloud run revisions list --service fraud-api --project fraud-api-g2z9q --region europe-west1 --sort-by=~metadata.creationTimestamp --format='value(metadata.name)' | sed -n 2p)=100"
+gcloud run services update-traffic fraud-api --project fraud-api-g2z9q --region europe-west1 --to-tags previous=100
 ```
 
-To go forward again, pass `--to-tags candidate=100`: the newest revision carries the `candidate` tag. Artifact Registry keeps the three most recent images, so the two revisions before the live one can still start.
+To go forward again, run the same command with `--to-tags candidate=100`. Artifact Registry keeps the three most recent images, so the `previous` revision can always start.
 
 ## Run it locally
 
