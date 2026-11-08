@@ -87,6 +87,10 @@ _Avoid_: FPR disparity, bias, fairness score, predictive equality
 
 ## Serving
 
+**Drift**:
+A change between the Applications the service scores and those of the Validation Month, the Month the Threshold was chosen on. It is measured per feature with the population stability index (PSI), and through the share of Applications sent to Review.
+_Avoid_: data shift, concept drift (the labels of live Applications are unknown)
+
 **Prediction Log**:
 The durable record of every Application the service scored and what it answered.
 _Avoid_: audit log, history, journal
