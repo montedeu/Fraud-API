@@ -1,6 +1,7 @@
 """The scoring service: POST an Application, get a Fraud Score, a Decision and the top
 factors behind it."""
 
+import copy
 import math
 import os
 import time
@@ -108,17 +109,7 @@ def create_app(
     def predict(
         application: ApplicationIn, request: Request, background: BackgroundTasks
     ) -> Scored:
-        model: model_version.ModelVersion = request.app.state.model
-        fraud_score = float(model.score(to_frame([application]))[0])
-        submitted = application.model_dump()
-        [factors] = model.top_factors([submitted])
-        scored = Scored(
-            fraud_score=fraud_score,
-            decision="review" if fraud_score >= model.threshold else "pass",
-            model_version=model.id,
-            request_id=uuid.uuid4(),
-            top_factors=factors,
-        )
+        scored = _answer(request.app.state.model, application)
         prediction_log: PredictionLog = request.app.state.prediction_log
         if prediction_log.enabled:
             # Queued after the response has been sent; a writer thread does the rest.
@@ -128,10 +119,10 @@ def create_app(
                     request_id=scored.request_id,
                     created_at=datetime.now(UTC),
                     model_version=scored.model_version,
-                    application=submitted,
+                    application=application.model_dump(),
                     fraud_score=scored.fraud_score,
                     decision=scored.decision,
-                    top_factors=factors,
+                    top_factors=[factor.model_dump() for factor in scored.top_factors],
                     latency_ms=(time.perf_counter() - request.state.received_at) * 1000,
                 ),
             )
@@ -140,24 +131,16 @@ def create_app(
     default_openapi = app.openapi
 
     def openapi_with_an_example_response() -> dict[str, Any]:
-        """The schema, with the /docs example Application's real answer, scored by the
-        loaded Model Version exactly as /predict would, as the example response."""
-        if app.openapi_schema is None:
-            schema = default_openapi()
-            model: model_version.ModelVersion = app.state.model
-            example = ApplicationIn.model_validate(EXAMPLE_APPLICATION)
-            fraud_score = float(model.score(to_frame([example]))[0])
-            [factors] = model.top_factors([example.model_dump()])
-            schema["components"]["schemas"]["Scored"]["examples"] = [
-                {
-                    "fraud_score": fraud_score,
-                    "decision": "review" if fraud_score >= model.threshold else "pass",
-                    "model_version": model.id,
-                    "request_id": "3f2b8c1e-0d4a-4e8b-9f6a-2c7d5e1b9a04",
-                    "top_factors": factors,
-                }
-            ]
-        return app.openapi_schema
+        """The schema, with the /docs example Application's real answer as the example
+        response. Built on a copy and kept only once it succeeds, so a failure is retried
+        on the next request instead of leaving /docs without an example for good."""
+        if getattr(app.state, "openapi_with_example", None) is None:
+            schema = copy.deepcopy(default_openapi())
+            example = _answer(app.state.model, ApplicationIn.model_validate(EXAMPLE_APPLICATION))
+            example.request_id = uuid.UUID("3f2b8c1e-0d4a-4e8b-9f6a-2c7d5e1b9a04")
+            schema["components"]["schemas"]["Scored"]["examples"] = [jsonable_encoder(example)]
+            app.state.openapi_with_example = schema
+        return app.state.openapi_with_example
 
     app.openapi = openapi_with_an_example_response  # type: ignore[method-assign]
 
@@ -166,6 +149,20 @@ def create_app(
         return Health(status="ok", model_version=request.app.state.model.id)
 
     return app
+
+
+def _answer(model: model_version.ModelVersion, application: ApplicationIn) -> Scored:
+    """What /predict answers for ``application``: the Fraud Score, the Decision, the Top
+    Factors and the Model Version, with a fresh request id."""
+    fraud_score = float(model.score(to_frame([application]))[0])
+    [factors] = model.top_factors([application.model_dump()])
+    return Scored(
+        fraud_score=fraud_score,
+        decision="review" if fraud_score >= model.threshold else "pass",
+        model_version=model.id,
+        request_id=uuid.uuid4(),
+        top_factors=factors,
+    )
 
 
 class _ReceivedAt:

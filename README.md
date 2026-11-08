@@ -1,6 +1,6 @@
 # Fraud API
 
-A public API that scores bank account opening Applications for fraud risk. Send one Application, get back a Fraud Score, a Decision (`pass` or `review`), the Top Factors behind the score and the Model Version that made it. Behind it is a LightGBM model trained on the public [Bank Account Fraud (BAF)](https://github.com/feedzai/bank-account-fraud) dataset, served by FastAPI on Google Cloud Run. Every scored Application is written to a Prediction Log in Postgres, best-effort: a database outage never blocks scoring.
+A public API that scores bank account opening Applications for fraud risk. Send one Application, get back a Fraud Score, a Decision (`pass` or `review`), the Top Factors behind the score and the Model Version that made it. Behind it is a LightGBM model trained on the public [Bank Account Fraud (BAF)](https://github.com/feedzai/bank-account-fraud) dataset, served by FastAPI on Google Cloud Run. Every scored Application is logged to a Prediction Log in Postgres, best-effort: a database outage never blocks scoring.
 
 <!-- generated:about -->
 Model Version `lgbm-f5421b309a8c`, Threshold 0.1037.
@@ -42,7 +42,7 @@ curl -s https://fraud-api-r6bn3ptcuq-ew.a.run.app/predict \
 ```
 <!-- /generated:curl -->
 
-A Fraud Score ranks Applications; it is not a probability. An Application is sent to `review` when its Fraud Score reaches the Threshold, chosen so that 5% of Legitimate Applications in the Validation Month would be. Send `null` for a value the Applicant did not provide, in the fields that may be missing (see [Data caveats](#data-caveats)); every other field is required. Unknown categories, out-of-range values, and missing or extra fields get a 422 that names the field.
+A Fraud Score ranks Applications; it is not a probability. An Application is sent to `review` when its Fraud Score reaches the Threshold, chosen so that 5% of Legitimate Applications in the Validation Month would be. Send `null` for a value the Applicant did not provide, in the fields that may be missing (see [Data caveats](#data-caveats)); every field must be present, and every other field needs a value. Unknown categories, out-of-range values, and missing or extra fields get a 422 that names the field.
 
 `top_factors` names the Top Factors: the three fields that moved this Fraud Score the most, largest first, with the Applicant's value. Each `contribution` is LightGBM's own TreeSHAP value (`pred_contrib`) in log-odds, the units of the model's raw score: positive pushes towards Review, negative towards Pass. Added to the model's expected value, all fields' contributions give the raw score, and its logistic transform is the Fraud Score. They explain this model's ranking, not what causes fraud.
 
@@ -107,17 +107,17 @@ All trials are in [`reports/optuna_trials.csv`](reports/optuna_trials.csv).
 
 <!-- generated:discussion -->
 - **LightGBM against logistic regression.** On the Test Months, at 5% FPR, LightGBM flags 55.0% of Fraudulent Applications and logistic regression 50.9% (+4.1 points); PR-AUC is 0.198 against 0.163. A well-preprocessed linear model gets most of the way; the single-feature rule flags 19.8%.
-- **FPR Ratio between Age Groups.** At its Threshold, LightGBM's FPR Ratio on the Test Months is 0.32: Legitimate Applications from one Age Group are flagged about 3.1 times as often as from the other. Fraud rises with age (EDA section 6), and the model learns it. The BAF authors report about 0.3 for their best models; this model's is published rather than hidden ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)).
+- **FPR Ratio between Age Groups.** At its Threshold, LightGBM's FPR Ratio on the Test Months is 0.32: Legitimate Applications from one Age Group are flagged about 3.1 times as often as from the other. Fraud rises with age (EDA section 6), and the model learns it. The BAF authors report about 0.3 for their best models; this model's FPR Ratio is published rather than hidden ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)).
 - **Drift between Months.** The share of Fraudulent Applications rises from 1.0% in the Training Months and 1.2% in the Validation Month to 1.4% in the Test Months. The Threshold chosen for 5% FPR on the Validation Month flags 6.0% of Legitimate Applications on the Test Months, and 59.1% of Fraudulent ones. A real deployment would re-choose the Threshold on recent data.
 <!-- /generated:discussion -->
 
 Age is a feature on purpose ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)). Several other fields carry part of the age signal (EDA section 7), so dropping it was expected to leave much of the gap between Age Groups in place while costing recall.
 
 <!-- generated:without-age -->
-Measured, in the row *LightGBM without `customer_age`* above: the same LightGBM with the served model's parameters and tree count, minus the one feature. On the Test Months, dropping age changes Recall@5%FPR by -0.3 points (about 9 of 2,878 Fraudulent Applications) and PR-AUC from 0.198 to 0.194, and it raises the FPR Ratio from 0.32 to 0.42: one Age Group's Legitimate Applications are still flagged about 2.4 times as often as the other's. That is one fit with one seed, with parameters tuned with age, so small differences may be noise. Reviewed with these numbers, the served model keeps age ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)).
+Measured, in the row *LightGBM without `customer_age`* above: the same LightGBM with the served model's parameters and tree count, minus the one feature. On the Test Months, dropping age changes Recall@5%FPR by -0.3 points (about 9 of 2,878 Fraudulent Applications) and PR-AUC from 0.198 to 0.194, and it raises the FPR Ratio from 0.32 to 0.42: one Age Group's Legitimate Applications are still flagged about 2.4 times as often as the other's. That is one fit with one seed, with parameters tuned with age, so small differences may be noise.
 <!-- /generated:without-age -->
 
-Nor is there a separate Threshold per Age Group: that would treat Applicants differently because of their age.
+The developer reviewed these numbers for Model Version `lgbm-f5421b309a8c` on 8 November 2026 and kept age as a feature (ADR 0003). There is no separate Threshold per Age Group either: that would treat Applicants differently because of their age.
 
 The [EDA notebook](notebooks/eda.ipynb) shows the data behind these choices; each section ends with the decision it led to.
 
@@ -132,7 +132,7 @@ The [EDA notebook](notebooks/eda.ipynb) shows the data behind these choices; eac
 The API is public and unauthenticated by design, so a reviewer can try it in a minute. These are the risks that follow from that, and what bounds them.
 
 - **Abuse and cost.** Each revision is capped at one instance with 1 vCPU and 512 MiB ([`deploy.yml`](.github/workflows/deploy.yml)). Busy around the clock, one instance uses about 2.6 million vCPU-seconds a month, roughly $45 a month in compute at [Cloud Run's instance-based prices](https://cloud.google.com/run/pricing) (Tier 1, after the free tier). Two revisions are reachable: the live one, and the rollback target through its `previous` tag URL. So the compute ceiling is about **$90 a month**.
-- **Outbound traffic has no ceiling.** It is billed at about $0.12 per GiB. The largest public response, `/openapi.json`, is about 6 KB, so a million requests for it cost under a dollar, but a sustained flood has no upper bound. Two things answer that:
+- **Outbound traffic has no ceiling.** It is billed at about $0.12 per GiB. The largest public response, `/openapi.json`, is under 8 KB, so a million requests for it cost under a dollar, but a sustained flood has no upper bound. Two things answer that:
   - a GCP budget emails the owner at 50% and 100% of a small monthly amount;
   - the kill switch below takes the service off the internet in seconds. There is no automatic billing shutdown.
 <!-- generated:limits -->
@@ -186,7 +186,7 @@ To retrain, download `Base.csv` and run the pipeline. Download needs a [Kaggle A
 
 ```bash
 uv run --group kaggle fraud-api download   # into data/
-uv run fraud-api train                     # rewrites model/ and reports/; about 35 min on 8 cores
+uv run fraud-api train                     # rewrites model/ and reports/
 uv run fraud-api readme                    # regenerates the numbers in this README
 ```
 
