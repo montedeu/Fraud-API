@@ -238,6 +238,7 @@ You need [uv](https://docs.astral.sh/uv/) and Python 3.12; Docker is optional.
 
 ```bash
 uv sync                                    # dependencies, including dev and train
+git config core.hooksPath .githooks        # the commit-msg hook
 uv run pytest                              # the tests; an embedded Postgres starts if TEST_DATABASE_URL is unset
 uv run fraud-api serve                     # the committed Model Version on http://localhost:8000/docs
 ```
