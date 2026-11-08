@@ -110,6 +110,18 @@ def test_metadata_reports_both_baselines_on_every_split(trained):
             assert split.keys() >= REQUIRED_METRICS, name
 
 
+def test_metadata_reports_lightgbm_without_age_on_every_split(trained):
+    without_age = model_version.load(trained).metadata["experiments"]["without_age"]
+
+    assert without_age["settings"]["features"] == [f for f in FIELDS if f != "customer_age"]
+    assert without_age["metrics"].keys() == {"training", "validation", "test"}
+    for split in without_age["metrics"].values():
+        assert split.keys() >= REQUIRED_METRICS
+    assert without_age["metrics"]["validation"]["fpr_at_threshold"] == pytest.approx(
+        0.05, abs=0.005
+    )
+
+
 @pytest.mark.parametrize("model", ["lightgbm", "logistic_regression", "credit_risk_score_rule"])
 def test_each_model_threshold_gives_5_percent_fpr_on_the_validation_month(trained, model):
     metadata = model_version.load(trained).metadata
@@ -139,6 +151,10 @@ def test_perturbing_test_month_labels_changes_neither_threshold_nor_model(traine
 
     assert perturbed.threshold == original.threshold
     assert perturbed.id == original.id
+    assert (
+        perturbed.metadata["experiments"]["without_age"]["threshold"]
+        == original.metadata["experiments"]["without_age"]["threshold"]
+    )
 
 
 def test_same_seed_reproduces_the_model_version_id(trained, dataset_path, tmp_path):

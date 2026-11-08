@@ -51,6 +51,7 @@ Test Months 6–7: 205,011 Applications, 2,878 of them Fraudulent (1.4%). Each m
 | LightGBM (served) | 55.0% | 59.1% | 6.0% | 0.198 | 0.32 |
 | Logistic regression | 50.9% | 50.0% | 4.8% | 0.163 | 0.29 |
 | `credit_risk_score` rule | 19.8% | 19.8% | 4.9% | 0.037 | 0.48 |
+| LightGBM without `customer_age` (experiment) | 54.7% | 57.9% | 5.9% | 0.194 | 0.42 |
 <!-- /generated:test-results -->
 
 - **Recall@5%FPR** is the share of Fraudulent Applications flagged when at most 5% of Legitimate Applications in these Months are flagged. It measures ranking quality.
@@ -65,6 +66,7 @@ Validation Month 5: 119,323 Applications, 1,411 of them Fraudulent (1.2%). Optim
 | LightGBM (served) | 54.8% | 54.8% | 5.0% | 0.193 | 0.33 |
 | Logistic regression | 50.7% | 50.7% | 5.0% | 0.158 | 0.32 |
 | `credit_risk_score` rule | 19.3% | 19.3% | 4.9% | 0.031 | 0.46 |
+| LightGBM without `customer_age` (experiment) | 53.9% | 53.9% | 5.0% | 0.192 | 0.44 |
 <!-- /generated:validation-results -->
 
 ### Tuning
@@ -85,7 +87,13 @@ All trials are in [`reports/optuna_trials.csv`](reports/optuna_trials.csv).
 - **Drift between Months.** The share of Fraudulent Applications rises from 1.0% in the Training Months and 1.2% in the Validation Month to 1.4% in the Test Months. The Threshold chosen for 5% FPR on the Validation Month flags 6.0% of Legitimate Applications on the Test Months, and 59.1% of Fraudulent ones. A real deployment would re-choose the Threshold on recent data.
 <!-- /generated:discussion -->
 
-Age stays a feature on purpose ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)). Several other fields carry part of the age signal (EDA section 7), so dropping it is expected to leave much of the gap between Age Groups in place while costing recall. Measuring that is a stretch goal in the spec (#1), not done. A separate Threshold per Age Group would treat Applicants differently because of their age.
+Age stays a feature on purpose ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)). Several other fields carry part of the age signal (EDA section 7), so dropping it was expected to leave much of the gap between Age Groups in place while costing recall.
+
+<!-- generated:without-age -->
+Measured: the same LightGBM, with the served model's parameters and tree count but without `customer_age`, is the last row of the tables above. On the Test Months, dropping age changes Recall@5%FPR by -0.3 points (55.0% → 54.7%) and PR-AUC from 0.198 to 0.194, and it raises the FPR Ratio from 0.32 to 0.42: one Age Group's Legitimate Applications are still flagged about 2.4 times as often as the other's. The served model keeps age; whether to drop it is a decision for [ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md).
+<!-- /generated:without-age -->
+
+A separate Threshold per Age Group would treat Applicants differently because of their age.
 
 The [EDA notebook](notebooks/eda.ipynb) shows the data behind these choices; each section ends with the decision it led to.
 

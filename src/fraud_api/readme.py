@@ -27,6 +27,9 @@ _MODELS: dict[str, Callable[[Metadata], Metadata]] = {
     "LightGBM (served)": lambda metadata: metadata,
     "Logistic regression": lambda metadata: metadata["baselines"]["logistic_regression"],
     "`credit_risk_score` rule": lambda metadata: metadata["baselines"]["credit_risk_score_rule"],
+    "LightGBM without `customer_age` (experiment)": lambda metadata: metadata["experiments"][
+        "without_age"
+    ],
 }
 
 
@@ -204,6 +207,32 @@ def _discussion(metadata: Metadata) -> str:
     )
 
 
+def _without_age(metadata: Metadata) -> str:
+    with_age = _metrics(metadata, "LightGBM (served)", "test")
+    without = _metrics(metadata, "LightGBM without `customer_age` (experiment)", "test")
+    recall = _points(without["recall_at_5pct_fpr"], with_age["recall_at_5pct_fpr"])
+    moved = "raises" if without["fpr_ratio"] > with_age["fpr_ratio"] else "lowers"
+    ratio = without["fpr_ratio"]
+    remaining = (
+        f"one Age Group's Legitimate Applications are still flagged about {1 / ratio:.1f} "
+        "times as often as the other's"
+        if 0 < ratio < 1
+        else "the Age Groups are flagged equally often"
+        if ratio >= 1
+        else "one Age Group's Legitimate Applications are still flagged far more often"
+    )
+    return (
+        "Measured: the same LightGBM, with the served model's parameters and tree count but "
+        "without `customer_age`, is the last row of the tables above. On the Test Months, "
+        f"dropping age changes Recall@5%FPR by {recall} "
+        f"({_pct(with_age['recall_at_5pct_fpr'])} → {_pct(without['recall_at_5pct_fpr'])}) "
+        f"and PR-AUC from {with_age['pr_auc']:.3f} to {without['pr_auc']:.3f}, and it "
+        f"{moved} the FPR Ratio from {with_age['fpr_ratio']:.2f} to {ratio:.2f}: "
+        f"{remaining}. The served model keeps age; whether to drop it is a decision for "
+        "[ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md).\n"
+    )
+
+
 def _limits(metadata: Metadata) -> str:
     return (
         f"- **Rate limit.** `/predict` allows {protection.RATE_LIMIT_PER_MINUTE} requests a "
@@ -225,5 +254,6 @@ _PARTS: dict[str, Callable[[Metadata], str]] = {
     "validation-results": _validation_results,
     "tuning": _tuning,
     "discussion": _discussion,
+    "without-age": _without_age,
     "limits": _limits,
 }
