@@ -216,7 +216,7 @@ To reopen it, run the same command with `--ingress all`.
 gcloud run services update-traffic fraud-api --project fraud-api-g2z9q --region europe-west1 --to-tags previous=100
 ```
 
-To go forward again, run the same command with `--to-tags candidate=100`. Artifact Registry keeps the three most recent images, so the `previous` revision can always start.
+To go forward again, run the same command with `--to-tags candidate=100`. Artifact Registry keeps the images of the last three or four deploys, so the `previous` revision can always start.
 
 **Monitoring:** compare each day of the Prediction Log with the Validation Month, the Month the Threshold was chosen on. The report shows, per day:
 - the Applications scored;

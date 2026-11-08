@@ -345,11 +345,13 @@ else
   run gcloud artifacts repositories create "$GAR_REPOSITORY" --project="$GCP_PROJECT_ID" \
     --location="$GCP_REGION" --repository-format=docker --description="Fraud API images"
 fi
-say "Applying the cleanup policy: keep the 3 most recent images, delete the rest."
+# A version is a manifest digest, and each deploy pushes about three (image index, image,
+# attestation): 10 versions keep the last 3-4 deploys, so the previous revision can start.
+say "Applying the cleanup policy: keep the 10 most recent versions (3-4 deploys), delete the rest."
 POLICY_FILE=$(mktemp --suffix=.json)
 cat > "$POLICY_FILE" <<'JSON'
 [
-  {"name": "keep-last-3", "action": {"type": "Keep"}, "mostRecentVersions": {"keepCount": 3}},
+  {"name": "keep-recent", "action": {"type": "Keep"}, "mostRecentVersions": {"keepCount": 10}},
   {"name": "delete-rest", "action": {"type": "Delete"}, "condition": {"tagState": "any"}}
 ]
 JSON
