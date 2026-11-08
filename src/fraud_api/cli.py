@@ -8,9 +8,10 @@ from pathlib import Path
 
 import uvicorn
 
-from fraud_api import readme
+from fraud_api import monitoring, readme
 from fraud_api.data import DATA_DIR, FILE_NAME, download
 from fraud_api.model_version import METADATA_FILE, MODEL_DIR
+from fraud_api.prediction_log import DATABASE_URL_ENV
 
 # Kept in step with fraud_api.training, fraud_api.tuning and fraud_api.reports, which are
 # imported only for `train`: serving must not need Optuna or matplotlib.
@@ -90,12 +91,14 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _monitor(days: int) -> None:
-    from fraud_api import monitoring
-
-    database_url = os.environ.get("DATABASE_URL")
+    database_url = os.environ.get(DATABASE_URL_ENV)
     if not database_url:
-        sys.exit("fraud-api monitor needs DATABASE_URL, the Prediction Log's connection string")
+        sys.exit(f"fraud-api monitor needs {DATABASE_URL_ENV}, the Prediction Log's URL")
+    if days < 1:
+        sys.exit("--days must be at least 1")
     metadata = json.loads((MODEL_DIR / METADATA_FILE).read_text())
+    if "monitoring" not in metadata:
+        sys.exit(f"Model Version {metadata['model_version']} has no monitoring reference")
     print(
         monitoring.report(
             monitoring.read_prediction_log(database_url, days),

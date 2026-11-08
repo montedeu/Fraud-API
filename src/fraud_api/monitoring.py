@@ -14,11 +14,14 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import psycopg
 
 PSI_WARNING = 0.1
 """The usual warning level, as in the EDA notebook's drift section."""
-MIN_APPLICATIONS_FOR_PSI = 100
-"""Below this many Applications a day, PSI is mostly noise and is not reported."""
+MIN_APPLICATIONS_FOR_PSI = 500
+"""Below this many Applications a day PSI is not reported: sampled from the Validation
+Month itself, 100 Applications push several features past the warning level by chance
+alone, 500 practically none."""
 MISSING = "missing"
 DISCRETE_MAX_VALUES = 12
 """Fields with at most this many values are compared value by value, the rest by decile."""
@@ -26,6 +29,8 @@ _FLOOR = 1e-4
 """Share used for an empty bin, so PSI stays finite."""
 
 Reference = dict[str, Any]
+PREDICTION_LOG_COLUMNS = ["created_at", "model_version", "application", "fraud_score", "decision"]
+"""The Prediction Log columns the report reads."""
 
 
 def reference_distribution(
@@ -42,11 +47,11 @@ def reference_distribution(
             present = values.dropna().astype(float)
             edges = np.unique(np.quantile(present, np.linspace(0, 1, 11)))[1:-1].tolist()
             reference[field] = {"kind": "deciles", "edges": edges}
-            reference[field]["shares"] = shares(values, reference[field])
+            reference[field]["shares"] = bin_shares(values, reference[field])
     return reference
 
 
-def shares(values: pd.Series, reference: Reference) -> dict[str, float]:
+def bin_shares(values: pd.Series, reference: Reference) -> dict[str, float]:
     """The share of ``values`` in each of ``reference``'s bins."""
     if reference["kind"] == "values":
         return _value_shares(values)
@@ -54,7 +59,7 @@ def shares(values: pd.Series, reference: Reference) -> dict[str, float]:
     present = numeric.notna()
     bins = np.searchsorted(reference["edges"], numeric[present].to_numpy(), side="right")
     keys = [f"decile {b + 1}" for b in bins] + [MISSING] * int((~present).sum())
-    return _shares(keys)
+    return _share_of_each(keys)
 
 
 def psi(reference: Mapping[str, float], observed: Mapping[str, float]) -> float:
@@ -70,7 +75,7 @@ def psi(reference: Mapping[str, float], observed: Mapping[str, float]) -> float:
 def drift(reference: Mapping[str, Reference], applications: pd.DataFrame) -> dict[str, float]:
     """PSI of every reference field in ``applications``, largest first."""
     result = {
-        field: psi(entry["shares"], shares(applications[field], entry))
+        field: psi(entry["shares"], bin_shares(applications[field], entry))
         for field, entry in reference.items()
     }
     return dict(sorted(result.items(), key=lambda kv: -kv[1]))
@@ -83,10 +88,10 @@ def report(
     model_version: str,
     exclude: Iterable[Mapping[str, Any]] = (),
 ) -> str:
-    """A Markdown report, one row per day, of the Prediction Log rows in ``predictions``
-    (columns ``created_at``, ``model_version``, ``application``, ``fraud_score``,
-    ``decision``) scored by ``model_version``. Applications equal to one in ``exclude``
-    (the smoke test's reference Applications) are left out."""
+    """A Markdown report, one row per UTC day, of the Prediction Log rows in
+    ``predictions`` (:data:`PREDICTION_LOG_COLUMNS`) scored by ``model_version``.
+    Applications equal to one in ``exclude`` (the smoke test's reference Applications)
+    are left out."""
     excluded = {_frozen(application) for application in exclude}
     rows = predictions[
         (predictions["model_version"] == model_version)
@@ -96,19 +101,20 @@ def report(
     lines = [
         f"# Prediction Log monitoring: Model Version `{model_version}`",
         "",
-        f"Reference: Validation Month {monitoring['reference_month']}, where the Threshold "
-        f"sent {expected:.1%} of Applications to Review. Features are listed when their "
-        f"PSI against it exceeds {PSI_WARNING} (days with at least "
-        f"{MIN_APPLICATIONS_FOR_PSI} Applications).",
+        f"Reference: Validation Month {monitoring['reference_month']}. The Threshold, chosen "
+        f"there for 5% FPR, sent {expected:.1%} of all its Applications to Review. Features "
+        f"are listed when their PSI against that Month exceeds {PSI_WARNING}, on days with "
+        f"at least {MIN_APPLICATIONS_FOR_PSI} Applications. Days are UTC.",
         "",
-        "| Day | Applications | Sent to Review | Mean Fraud Score | Drifted features (PSI) |",
+        f"| Day (UTC) | Applications | Sent to Review (Validation Month: {expected:.1%}) "
+        "| Mean Fraud Score | Drifted features (PSI) |",
         "|---|---:|---:|---:|---|",
     ]
     if rows.empty:
         lines.append("| no Applications in this period | | | | |")
         return "\n".join(lines) + "\n"
-    days = pd.to_datetime(rows["created_at"], utc=True).dt.date
-    for day, group in rows.groupby(days, sort=True):
+    dates = pd.to_datetime(rows["created_at"], utc=True).dt.date
+    for day, group in rows.groupby(dates, sort=True):
         review = (group["decision"] == "review").mean()
         if len(group) < MIN_APPLICATIONS_FOR_PSI:
             drifted = "too few to judge"
@@ -129,18 +135,13 @@ def report(
 
 def read_prediction_log(database_url: str, days: int) -> pd.DataFrame:
     """The Prediction Log's rows from the last ``days`` days."""
-    import psycopg
-
     with psycopg.connect(database_url) as connection:
         rows = connection.execute(
-            "SELECT created_at, model_version, application, fraud_score, decision "
-            "FROM prediction_log WHERE created_at >= now() - make_interval(days => %s) "
-            "ORDER BY created_at",
+            f"SELECT {', '.join(PREDICTION_LOG_COLUMNS)} FROM prediction_log "
+            "WHERE created_at >= now() - make_interval(days => %s) ORDER BY created_at",
             (days,),
         ).fetchall()
-    return pd.DataFrame(
-        rows, columns=["created_at", "model_version", "application", "fraud_score", "decision"]
-    )
+    return pd.DataFrame(rows, columns=PREDICTION_LOG_COLUMNS)
 
 
 def _key(value: Any) -> str:
@@ -152,10 +153,10 @@ def _key(value: Any) -> str:
 
 
 def _value_shares(values: pd.Series) -> dict[str, float]:
-    return _shares([_key(v) for v in values.astype(object)])
+    return _share_of_each([_key(v) for v in values.astype(object)])
 
 
-def _shares(keys: list[str]) -> dict[str, float]:
+def _share_of_each(keys: list[str]) -> dict[str, float]:
     if not keys:
         return {}
     counts = pd.Series(keys).value_counts(normalize=True)
