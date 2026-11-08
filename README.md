@@ -50,7 +50,7 @@ The words used here (Application, Fraud Score, Threshold, Decision, Month…) ar
 
 ## Architecture
 
-Scoring one Application, and the drift report read from the Prediction Log:
+Scoring one Application, and the Drift report read from the Prediction Log:
 
 ```mermaid
 flowchart LR
@@ -68,7 +68,7 @@ flowchart LR
     model -- "Fraud Score, Decision,<br/>Top Factors, Model Version" --> client
     run -. "after the response,<br/>best-effort" .-> log
     secret -. "DATABASE_URL" .-> run
-    log -. "fraud-api monitor" .-> drift["drift report"]
+    log -. "fraud-api monitor" .-> drift["Drift report against<br/>the Validation Month"]
 ```
 
 How a model and a commit reach production:
@@ -76,19 +76,20 @@ How a model and a commit reach production:
 ```mermaid
 flowchart LR
     data[("Base.csv<br/>(not in git)")] --> train["fraud-api train<br/>tuning, Threshold, baselines,<br/>evaluation, bootstrap"]
-    train --> committed["model/ and README numbers<br/>(committed)"]
+    train --> model["model/<br/>the committed Model Version"]
+    model --> readme["fraud-api readme<br/>the README's numbers"]
 
-    pr["Pull request"] --> checks["CI: ruff, pytest with Postgres,<br/>image build"]
-    main["Merge to main or<br/>Run workflow"] --> checks2["ruff, pytest<br/>with Postgres"]
-    checks2 --> push["image to<br/>Artifact Registry"]
-    committed -. "copied into the image" .-> push
+    pr["Pull request"] --> ci["CI: ruff, pytest with Postgres,<br/>image build (not pushed)"]
+    main["Merge to main, or<br/>Run workflow on main"] --> checks["CI: ruff,<br/>pytest with Postgres"]
+    checks --> push["build and push the image<br/>to Artifact Registry"]
+    model -. "copied into the image" .-> push
     push --> candidate["candidate revision,<br/>no traffic"]
-    candidate --> smoke{"smoke test"}
-    smoke -- "pass" --> live["all traffic to it, smoke test again;<br/>old revision tagged previous"]
-    live -- "fail" --> undo
-    smoke -- "fail" --> undo["traffic back on the revision<br/>that served before"]
-    wif[["Workload Identity Federation<br/>no keys"]] -. "deployer identity" .-> push
-    wif -. "deployer identity" .-> candidate
+    candidate --> smoke{"smoke test:<br/>/health, /predict, /docs"}
+    smoke -- "pass" --> live["all traffic to it, smoke test again;<br/>the old revision tagged previous"]
+    candidate -- "deploy fails or<br/>run cancelled" --> undo
+    smoke -- "fail" --> undo
+    live -- "fail" --> undo["traffic and the candidate tag back<br/>on the revision that served before"]
+    wif[["Workload Identity Federation<br/>deployer identity, no keys"]] -. "authenticates every<br/>step in GCP" .-> push
 ```
 
 ## How the model was built
