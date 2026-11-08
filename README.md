@@ -48,6 +48,49 @@ A Fraud Score ranks Applications; it is not a probability. An Application is sen
 
 The words used here (Application, Fraud Score, Threshold, Decision, Month…) are defined in [GLOSSARY.md](GLOSSARY.md).
 
+## Architecture
+
+Scoring one Application, and the drift report read from the Prediction Log:
+
+```mermaid
+flowchart LR
+    client(["API client"])
+    subgraph run["Cloud Run: fraud-api, at most 1 instance"]
+        direction TB
+        api["FastAPI<br/>validation, rate limit, body cap"]
+        model["Model Version<br/>LightGBM + Threshold"]
+        api --> model
+    end
+    log[("Prediction Log<br/>Neon Postgres")]
+    secret[["Secret Manager<br/>database-url"]]
+
+    client -- "POST /predict: Application" --> api
+    model -- "Fraud Score, Decision,<br/>Top Factors, Model Version" --> client
+    run -. "after the response,<br/>best-effort" .-> log
+    secret -. "DATABASE_URL" .-> run
+    log -. "fraud-api monitor" .-> drift["drift report"]
+```
+
+How a model and a commit reach production:
+
+```mermaid
+flowchart LR
+    data[("Base.csv<br/>(not in git)")] --> train["fraud-api train<br/>tuning, Threshold, baselines,<br/>evaluation, bootstrap"]
+    train --> committed["model/ and README numbers<br/>(committed)"]
+
+    pr["Pull request"] --> checks["CI: ruff, pytest with Postgres,<br/>image build"]
+    main["Merge to main or<br/>Run workflow"] --> checks2["ruff, pytest<br/>with Postgres"]
+    checks2 --> push["image to<br/>Artifact Registry"]
+    committed -. "copied into the image" .-> push
+    push --> candidate["candidate revision,<br/>no traffic"]
+    candidate --> smoke{"smoke test"}
+    smoke -- "pass" --> live["all traffic to it, smoke test again;<br/>old revision tagged previous"]
+    live -- "fail" --> undo
+    smoke -- "fail" --> undo["traffic back on the revision<br/>that served before"]
+    wif[["Workload Identity Federation<br/>no keys"]] -. "deployer identity" .-> push
+    wif -. "deployer identity" .-> candidate
+```
+
 ## How the model was built
 
 The data has eight Months (0–7) and nothing finer, so the split is by Month ([ADR 0001](docs/adr/0001-split-by-month-without-refit.md)):
