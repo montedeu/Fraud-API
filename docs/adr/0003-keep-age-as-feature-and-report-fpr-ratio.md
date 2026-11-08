@@ -1,6 +1,6 @@
 # Keep age as a feature and report the FPR Ratio
 
-`customer_age` stays a model feature, and every evaluation reports the FPR Ratio between Age Groups next to Recall@5%FPR. Applicants aged 50 or over are almost three times as likely to submit a Fraudulent Application (2.3% against 0.8%), so the model is expected to flag their Legitimate Applications more often; the BAF authors report an FPR Ratio around 0.3 for their best models. We choose to measure and publish that disparity rather than hide it.
+`customer_age` stays a model feature, and every evaluation reports the FPR Ratio between Age Groups next to Recall@5%FPR. Applicants aged 50 or over are almost three times as likely to submit a Fraudulent Application (2.21% against 0.75% in Months 0–5, EDA section 6), so the model is expected to flag their Legitimate Applications more often; the BAF authors report an FPR Ratio around 0.3 for their best models. We choose to measure and publish that disparity rather than hide it.
 
 ## Considered Options
 
