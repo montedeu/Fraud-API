@@ -7,7 +7,9 @@
 #   check_no_agent_attribution.sh --stdin              text on stdin, e.g. a PR body (CI)
 set -euo pipefail
 
-pattern='co-authored-by:.*(claude|anthropic)|generated (with|by) .*claude|noreply@anthropic\.com'
+# Anchored to the start of a line, where trailers and footers go, so prose that quotes
+# them (like this PR's description of the check) passes.
+pattern='^[[:space:]]*co-authored-by:.*(claude|anthropic)|^[^[:alnum:]]*generated (with|by) \[?claude'
 
 case "${1:-}" in
   --range)
