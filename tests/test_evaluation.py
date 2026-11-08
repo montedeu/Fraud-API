@@ -177,8 +177,14 @@ class TestFprRatio:
 class TestPairedBootstrap:
     """Seam 3: the paired bootstrap over the Test Months."""
 
+    # 160 Legitimate Applications scored below every one of 40 Fraudulent ones, half of
+    # each Age Group: a perfect ranking, whatever the resample.
+    LABELS = [0] * 160 + [1] * 40
+    AGES = [30, 60] * 100
+    PERFECT = [i / 1000 for i in range(160)] + [0.9 + i / 1000 for i in range(40)]
+
     @staticmethod
-    def _sample(n=600, seed=7):
+    def _noisy(n=600, seed=7):
         rng = np.random.default_rng(seed)
         labels = (rng.random(n) < 0.15).astype(int)
         ages = rng.choice([20, 30, 40, 50, 60, 70], size=n)
@@ -186,46 +192,43 @@ class TestPairedBootstrap:
         weak = labels + rng.normal(0, 2.0, n)
         return labels, ages, {"good": good, "weak": weak}
 
-    def _run(self, scores=None, seed=0):
-        labels, ages, default = self._sample()
-        scores = scores or default
-        thresholds = {name: threshold_for_fpr(labels, s) for name, s in scores.items()}
-        return (
-            labels,
-            ages,
-            scores,
-            thresholds,
-            paired_bootstrap(
-                labels, ages, scores, thresholds, reference="good", n_resamples=200, seed=seed
-            ),
+    @staticmethod
+    def _bootstrap(labels, ages, scores, seed=0, thresholds=None):
+        thresholds = thresholds or {n: threshold_for_fpr(labels, s) for n, s in scores.items()}
+        return paired_bootstrap(
+            labels, ages, scores, thresholds, reference="good", n_resamples=200, seed=seed
         )
 
-    def test_each_interval_contains_the_point_estimate(self):
-        labels, ages, scores, thresholds, result = self._run()
+    def test_a_perfect_ranking_has_intervals_of_exactly_one(self):
+        # Every resample ranks every Fraudulent Application first, and a Threshold between
+        # the two classes flags no Legitimate one: each metric is 1 on every resample.
+        result = self._bootstrap(
+            self.LABELS, self.AGES, {"good": self.PERFECT}, thresholds={"good": 0.5}
+        )
 
-        for name, s in scores.items():
-            point = {
-                "recall_at_5pct_fpr": recall_at_fpr(labels, s),
-                "pr_auc": pr_auc(labels, s),
-                "fpr_ratio": fpr_ratio(labels, s, ages, thresholds[name]),
-            }
-            for metric, value in point.items():
-                low, high = result[name]["interval"][metric]
-                assert low <= value <= high, (name, metric)
-
-    def test_the_same_seed_gives_the_same_intervals(self):
-        assert self._run(seed=3)[-1] == self._run(seed=3)[-1]
-        assert self._run(seed=3)[-1] != self._run(seed=4)[-1]
+        intervals = result["good"]["interval"]
+        assert set(intervals) == {"recall_at_5pct_fpr", "pr_auc", "fpr_ratio"}
+        for interval in intervals.values():
+            assert interval == pytest.approx([1.0, 1.0], abs=1e-12)
+        assert "difference" not in result["good"]
 
     def test_identical_scores_differ_by_exactly_zero(self):
-        labels, _, default = self._sample()
-        result = self._run(scores={"good": default["good"], "copy": default["good"].copy()})[-1]
+        labels, ages, scores = self._noisy()
+        copies = {"good": scores["good"], "copy": scores["good"].copy()}
+
+        result = self._bootstrap(labels, ages, copies)
 
         assert all(interval == [0.0, 0.0] for interval in result["copy"]["difference"].values())
 
-    def test_a_clearly_better_model_has_a_difference_interval_above_zero(self):
-        result = self._run()[-1]
+    def test_the_same_seed_gives_the_same_intervals(self):
+        labels, ages, scores = self._noisy()
 
-        low, _ = result["weak"]["difference"]["recall_at_5pct_fpr"]
+        assert self._bootstrap(labels, ages, scores, 3) == self._bootstrap(labels, ages, scores, 3)
+        assert self._bootstrap(labels, ages, scores, 3) != self._bootstrap(labels, ages, scores, 4)
+
+    def test_a_clearly_better_model_has_a_difference_interval_above_zero(self):
+        labels, ages, scores = self._noisy()
+
+        low, _ = self._bootstrap(labels, ages, scores)["weak"]["difference"]["recall_at_5pct_fpr"]
+
         assert low > 0
-        assert "difference" not in result["good"]

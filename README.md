@@ -77,7 +77,7 @@ Test Months 6–7: 205,011 Applications, 2,878 of them Fraudulent (1.4%). Each m
 | `credit_risk_score` rule | 19.8% (18.2–21.3) | 19.8% | 4.9% | 0.037 (0.034–0.040) | 0.48 (0.46–0.50) |
 | LightGBM without `customer_age` (experiment) | 54.7% (52.9–56.7) | 57.9% | 5.9% | 0.194 (0.179–0.207) | 0.42 (0.41–0.44) |
 
-In brackets: 95% intervals from a paired bootstrap of the Test Months (1,000 resamples, every model on the same ones, Thresholds fixed).
+In brackets: 95% intervals from a paired bootstrap of the Test Months' Applications (1,000 resamples, every model on the same ones). Recall@5%FPR picks its own cut on each resample, as its definition says; the FPR Ratio stays at each model's Threshold from the Validation Month. The intervals cover sampling noise in these Applications, not drift to later Months or a refit of the model.
 <!-- /generated:test-results -->
 
 - **Recall@5%FPR** is the share of Fraudulent Applications flagged when at most 5% of Legitimate Applications in these Months are flagged. It measures ranking quality.
@@ -116,7 +116,7 @@ All trials are in [`reports/optuna_trials.csv`](reports/optuna_trials.csv).
 Age is a feature on purpose ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)). Several other fields carry part of the age signal (EDA section 7), so dropping it was expected to leave much of the gap between Age Groups in place while costing recall.
 
 <!-- generated:without-age -->
-Measured, in the row *LightGBM without `customer_age`* above: the same LightGBM with the served model's parameters and tree count, minus the one feature. On the Test Months, dropping age changes Recall@5%FPR by -0.3 points (about 9 of 2,878 Fraudulent Applications) and PR-AUC from 0.198 to 0.194, and it raises the FPR Ratio from 0.32 to 0.42: one Age Group's Legitimate Applications are still flagged about 2.4 times as often as the other's. Paired over the same bootstrap resamples, the change in Recall@5%FPR is -1.2 to +0.6 points, which includes zero, and the change in FPR Ratio is +0.10 to +0.11, which excludes zero. That is still one fit with one seed, with parameters tuned with age.
+Measured, in the row *LightGBM without `customer_age`* above: the same LightGBM with the served model's parameters and tree count, minus the one feature. On the Test Months, dropping age changes Recall@5%FPR by -0.3 points (about 9 of 2,878 Fraudulent Applications) and PR-AUC from 0.198 to 0.194, and it raises the FPR Ratio from 0.32 to 0.42: one Age Group's Legitimate Applications are still flagged about 2.4 times as often as the other's. Paired over the same bootstrap resamples, the change in Recall@5%FPR is -1.2 to +0.6 points, which includes zero; in PR-AUC, -0.008 to -0.001, which excludes zero; and in the FPR Ratio, +0.098 to +0.114, which excludes zero. That is still one fit with one seed, with parameters tuned with age.
 <!-- /generated:without-age -->
 
 The developer reviewed these numbers for Model Version `lgbm-f5421b309a8c` on 8 November 2026 and kept age as a feature (ADR 0003). There is no separate Threshold per Age Group either: that would treat Applicants differently because of their age.

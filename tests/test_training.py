@@ -199,10 +199,15 @@ def test_perturbing_test_month_labels_changes_neither_threshold_nor_model(traine
 
     assert perturbed.threshold == original.threshold
     assert perturbed.id == original.id
-    assert (
-        perturbed.metadata["experiments"]["without_age"]["threshold"]
-        == original.metadata["experiments"]["without_age"]["threshold"]
-    )
+    for path in [
+        ("experiments", "without_age"),
+        ("baselines", "logistic_regression"),
+        ("baselines", "credit_risk_score_rule"),
+    ]:
+        perturbed_model, original_model = perturbed.metadata, original.metadata
+        for key in path:
+            perturbed_model, original_model = perturbed_model[key], original_model[key]
+        assert perturbed_model["threshold"] == original_model["threshold"], path
 
 
 def test_same_seed_reproduces_the_model_version_id(trained, dataset_path, tmp_path):
