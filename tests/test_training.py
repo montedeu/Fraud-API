@@ -110,24 +110,30 @@ def test_metadata_reports_both_baselines_on_every_split(trained):
             assert split.keys() >= REQUIRED_METRICS, name
 
 
-def test_metadata_reports_lightgbm_without_age_on_every_split(trained):
+def test_lightgbm_without_age_is_reported_on_every_split_and_never_sees_age(trained):
     without_age = model_version.load(trained).metadata["experiments"]["without_age"]
 
-    assert without_age["settings"]["features"] == [f for f in FIELDS if f != "customer_age"]
+    assert "customer_age" not in without_age["settings"]["features"]
+    assert set(without_age["settings"]["features"]) == set(FIELDS) - {"customer_age"}
     assert without_age["metrics"].keys() == {"training", "validation", "test"}
     for split in without_age["metrics"].values():
         assert split.keys() >= REQUIRED_METRICS
-    assert without_age["metrics"]["validation"]["fpr_at_threshold"] == pytest.approx(
-        0.05, abs=0.005
-    )
 
 
-@pytest.mark.parametrize("model", ["lightgbm", "logistic_regression", "credit_risk_score_rule"])
-def test_each_model_threshold_gives_5_percent_fpr_on_the_validation_month(trained, model):
-    metadata = model_version.load(trained).metadata
-    metrics = (
-        metadata["metrics"] if model == "lightgbm" else metadata["baselines"][model]["metrics"]
-    )
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("metrics",),
+        ("baselines", "logistic_regression", "metrics"),
+        ("baselines", "credit_risk_score_rule", "metrics"),
+        ("experiments", "without_age", "metrics"),
+    ],
+    ids=["lightgbm", "logistic_regression", "credit_risk_score_rule", "without_age"],
+)
+def test_each_model_threshold_gives_5_percent_fpr_on_the_validation_month(trained, path):
+    metrics = model_version.load(trained).metadata
+    for key in path:
+        metrics = metrics[key]
 
     assert metrics["validation"]["fpr_at_threshold"] == pytest.approx(0.05, abs=0.005)
     assert metrics["validation"]["fpr_at_threshold"] <= 0.05

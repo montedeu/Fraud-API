@@ -4,9 +4,9 @@
 
 ## Considered Options
 
-- **Drop age from the features ("fairness through unawareness").** Usually leaves most of the disparity in place, because other features act as proxies for age, while costing recall. Comparing the model with and without age is a planned follow-up experiment, not the default.
+- **Drop age from the features ("fairness through unawareness").** Usually leaves most of the disparity in place, because other features act as proxies for age, while costing recall. This was later measured; see below.
 - **A separate Threshold per Age Group, to equalise FPR.** Treating Applicants differently because of their age is legally contentious in financial services, so it is ruled out.
 
 ## Measured
 
-The training pipeline now fits the same LightGBM without `customer_age` and reports it next to the served model (README, "What the numbers say"; `experiments.without_age` in `model/metadata.json`). Dropping age cost much less recall than this ADR assumed, and it narrowed the gap between Age Groups without closing it. The decision above stands until it is revisited with those numbers.
+On Model Version `lgbm-f5421b309a8c` (8 November 2026), the training pipeline fitted the same LightGBM without `customer_age` and reported it next to the served model (README, "What the numbers say"; `experiments.without_age` in `model/metadata.json`). That run contradicts half of the reasoning above. The gap between Age Groups narrowed but stayed wide, as expected. The recall cost, however, was a fraction of a point on the Test Months, within the noise of a single fit, rather than the clear loss this ADR assumed. The decision stands until it is revisited with those numbers.

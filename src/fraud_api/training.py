@@ -19,7 +19,7 @@ TRAINING_MONTHS = (0, 1, 2, 3, 4)
 VALIDATION_MONTH = 5
 TEST_MONTHS = (6, 7)
 SEED = 42
-WITHOUT_AGE = [field for field in FIELDS if field != "customer_age"]
+FEATURES_WITHOUT_AGE = [field for field in FIELDS if field != "customer_age"]
 """The features of the experiment that measures what dropping age does (ADR 0003)."""
 
 
@@ -71,19 +71,21 @@ def train(
     # difference. Its FPR Ratio is still measured on the Age Groups in the data.
     without_age = lgb.train(
         tuned.params,
-        lgb.Dataset(prepare(training.applications, WITHOUT_AGE, CATEGORIES), label=training.labels),
+        lgb.Dataset(
+            prepare(training.applications, FEATURES_WITHOUT_AGE, CATEGORIES),
+            label=training.labels,
+        ),
         num_boost_round=tuned.num_boost_round,
     )
     experiments = {
         "without_age": {
             "settings": {
-                "features": WITHOUT_AGE,
+                # Read back from the trained model, not from the list it was given.
+                "features": without_age.feature_name(),
                 "lightgbm": "the served model's tuned parameters and tree count",
             },
             **_evaluate(
-                lambda applications: without_age.predict(
-                    prepare(applications, WITHOUT_AGE, CATEGORIES)
-                ),
+                lambda applications: _score(without_age, applications, FEATURES_WITHOUT_AGE),
                 splits,
             ),
         }
@@ -222,8 +224,10 @@ def reference_applications() -> list[dict[str, Any]]:
     return applications
 
 
-def _score(booster: lgb.Booster, applications: pd.DataFrame) -> np.ndarray:
-    return booster.predict(prepare(applications, FIELDS, CATEGORIES))
+def _score(
+    booster: lgb.Booster, applications: pd.DataFrame, features: list[str] = FIELDS
+) -> np.ndarray:
+    return booster.predict(prepare(applications, features, CATEGORIES))
 
 
 def _evaluate(scorer: baselines.Scorer, splits: dict[str, Dataset]) -> dict[str, Any]:

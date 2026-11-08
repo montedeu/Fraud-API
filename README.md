@@ -90,7 +90,7 @@ All trials are in [`reports/optuna_trials.csv`](reports/optuna_trials.csv).
 Age stays a feature on purpose ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)). Several other fields carry part of the age signal (EDA section 7), so dropping it was expected to leave much of the gap between Age Groups in place while costing recall.
 
 <!-- generated:without-age -->
-Measured: the same LightGBM, with the served model's parameters and tree count but without `customer_age`, is the last row of the tables above. On the Test Months, dropping age changes Recall@5%FPR by -0.3 points (55.0% → 54.7%) and PR-AUC from 0.198 to 0.194, and it raises the FPR Ratio from 0.32 to 0.42: one Age Group's Legitimate Applications are still flagged about 2.4 times as often as the other's. The served model keeps age; whether to drop it is a decision for [ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md).
+Measured, in the row *LightGBM without `customer_age`* above: the same LightGBM with the served model's parameters and tree count, minus the one feature. On the Test Months, dropping age changes Recall@5%FPR by -0.3 points (about 9 of 2,878 Fraudulent Applications) and PR-AUC from 0.198 to 0.194, and it raises the FPR Ratio from 0.32 to 0.42: one Age Group's Legitimate Applications are still flagged about 2.4 times as often as the other's. That is one fit with one seed, with parameters tuned with age, so small differences may be noise. The served model keeps age; whether to drop it is a decision for [ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md).
 <!-- /generated:without-age -->
 
 A separate Threshold per Age Group would treat Applicants differently because of their age.
