@@ -72,10 +72,12 @@ Test Months 6–7: 205,011 Applications, 2,878 of them Fraudulent (1.4%). Each m
 
 | Model | Recall@5%FPR | Recall at the Threshold | FPR at the Threshold | PR-AUC | FPR Ratio |
 |---|---:|---:|---:|---:|---:|
-| LightGBM (served) | 55.0% | 59.1% | 6.0% | 0.198 | 0.32 |
-| Logistic regression | 50.9% | 50.0% | 4.8% | 0.163 | 0.29 |
-| `credit_risk_score` rule | 19.8% | 19.8% | 4.9% | 0.037 | 0.48 |
-| LightGBM without `customer_age` (experiment) | 54.7% | 57.9% | 5.9% | 0.194 | 0.42 |
+| LightGBM (served) | 55.0% (53.3–57.0) | 59.1% | 6.0% | 0.198 (0.183–0.213) | 0.32 (0.31–0.33) |
+| Logistic regression | 50.9% (49.1–52.7) | 50.0% | 4.8% | 0.163 (0.150–0.176) | 0.29 (0.28–0.31) |
+| `credit_risk_score` rule | 19.8% (18.2–21.3) | 19.8% | 4.9% | 0.037 (0.034–0.040) | 0.48 (0.46–0.50) |
+| LightGBM without `customer_age` (experiment) | 54.7% (52.9–56.7) | 57.9% | 5.9% | 0.194 (0.179–0.207) | 0.42 (0.41–0.44) |
+
+In brackets: 95% intervals from a paired bootstrap of the Test Months' Applications (1,000 resamples, every model on the same ones). Recall@5%FPR picks its own cut on each resample, as its definition says; the FPR Ratio stays at each model's Threshold from the Validation Month. The intervals cover sampling noise in these Applications, not drift to later Months or a refit of the model.
 <!-- /generated:test-results -->
 
 - **Recall@5%FPR** is the share of Fraudulent Applications flagged when at most 5% of Legitimate Applications in these Months are flagged. It measures ranking quality.
@@ -106,7 +108,7 @@ All trials are in [`reports/optuna_trials.csv`](reports/optuna_trials.csv).
 ### What the numbers say
 
 <!-- generated:discussion -->
-- **LightGBM against logistic regression.** On the Test Months, at 5% FPR, LightGBM flags 55.0% of Fraudulent Applications and logistic regression 50.9% (+4.1 points); PR-AUC is 0.198 against 0.163. A well-preprocessed linear model gets most of the way; the single-feature rule flags 19.8%.
+- **LightGBM against logistic regression.** On the Test Months, at 5% FPR, LightGBM flags 55.0% of Fraudulent Applications and logistic regression 50.9% (+4.1 points; the difference's interval is +2.9 to +5.4 points, which excludes zero); PR-AUC is 0.198 against 0.163. A well-preprocessed linear model gets most of the way; the single-feature rule flags 19.8%.
 - **FPR Ratio between Age Groups.** At its Threshold, LightGBM's FPR Ratio on the Test Months is 0.32: Legitimate Applications from one Age Group are flagged about 3.1 times as often as from the other. Fraud rises with age (EDA section 6), and the model learns it. The BAF authors report about 0.3 for their best models; this model's FPR Ratio is published rather than hidden ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)).
 - **Drift between Months.** The share of Fraudulent Applications rises from 1.0% in the Training Months and 1.2% in the Validation Month to 1.4% in the Test Months. The Threshold chosen for 5% FPR on the Validation Month flags 6.0% of Legitimate Applications on the Test Months, and 59.1% of Fraudulent ones. A real deployment would re-choose the Threshold on recent data.
 <!-- /generated:discussion -->
@@ -114,7 +116,7 @@ All trials are in [`reports/optuna_trials.csv`](reports/optuna_trials.csv).
 Age is a feature on purpose ([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)). Several other fields carry part of the age signal (EDA section 7), so dropping it was expected to leave much of the gap between Age Groups in place while costing recall.
 
 <!-- generated:without-age -->
-Measured, in the row *LightGBM without `customer_age`* above: the same LightGBM with the served model's parameters and tree count, minus the one feature. On the Test Months, dropping age changes Recall@5%FPR by -0.3 points (about 9 of 2,878 Fraudulent Applications) and PR-AUC from 0.198 to 0.194, and it raises the FPR Ratio from 0.32 to 0.42: one Age Group's Legitimate Applications are still flagged about 2.4 times as often as the other's. That is one fit with one seed, with parameters tuned with age, so small differences may be noise.
+Measured, in the row *LightGBM without `customer_age`* above: the same LightGBM with the served model's parameters and tree count, minus the one feature. On the Test Months, dropping age changes Recall@5%FPR by -0.3 points (about 9 of 2,878 Fraudulent Applications) and PR-AUC from 0.198 to 0.194, and it raises the FPR Ratio from 0.32 to 0.42: one Age Group's Legitimate Applications are still flagged about 2.4 times as often as the other's. Paired over the same bootstrap resamples, the change in Recall@5%FPR is -1.2 to +0.6 points, which includes zero; in PR-AUC, -0.008 to -0.001, which excludes zero; and in the FPR Ratio, +0.098 to +0.114, which excludes zero. That is still one fit with one seed, with parameters tuned with age.
 <!-- /generated:without-age -->
 
 The developer reviewed these numbers for Model Version `lgbm-f5421b309a8c` on 8 November 2026 and kept age as a feature (ADR 0003). There is no separate Threshold per Age Group either: that would treat Applicants differently because of their age.

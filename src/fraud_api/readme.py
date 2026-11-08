@@ -62,6 +62,36 @@ def _points(a: float, b: float) -> str:
     return f"{(round(a, 3) - round(b, 3)) * 100:+.1f} points"
 
 
+_BOOTSTRAP_KEYS = {
+    "LightGBM (served)": "lightgbm",
+    "Logistic regression": "logistic_regression",
+    "`credit_risk_score` rule": "credit_risk_score_rule",
+    "LightGBM without `customer_age` (experiment)": "without_age",
+}
+"""Each table row's model as named in the metadata's paired bootstrap."""
+
+
+def _bootstrap(metadata: Metadata, model: str) -> Metadata:
+    return metadata["bootstrap"]["models"][_BOOTSTRAP_KEYS[model]]
+
+
+def _span(interval: list[float], *, scale: float = 100, digits: int = 1) -> str:
+    low, high = (value * scale for value in interval)
+    return f"{low:.{digits}f}–{high:.{digits}f}"
+
+
+def _difference(metadata: Metadata, model: str, metric: str, *, flip: bool = False) -> str:
+    """The interval of the served model minus ``model`` (``flip``: ``model`` minus the
+    served model), in points for shares, and whether it excludes zero."""
+    low, high = _bootstrap(metadata, model)["difference"][metric]
+    if flip:
+        low, high = -high, -low
+    verdict = "includes zero" if low <= 0 <= high else "excludes zero"
+    if metric != "recall_at_5pct_fpr":  # PR-AUC and the FPR Ratio aren't shares: no points
+        return f"{low:+.3f} to {high:+.3f}, which {verdict}"
+    return f"{low * 100:+.1f} to {high * 100:+.1f} points, which {verdict}"
+
+
 def _metrics(metadata: Metadata, model: str, split: str) -> Metadata:
     return _MODELS[model](metadata)["metrics"][split]
 
@@ -79,10 +109,17 @@ def _table(metadata: Metadata, split: str) -> str:
     ]
     for model in _MODELS:
         metrics = _metrics(metadata, model, split)
+        recall = _pct(metrics["recall_at_5pct_fpr"])
+        pr_auc = f"{metrics['pr_auc']:.3f}"
+        ratio = f"{metrics['fpr_ratio']:.2f}"
+        if split == "test":  # the bootstrap covers the Test Months only
+            interval = _bootstrap(metadata, model)["interval"]
+            recall += f" ({_span(interval['recall_at_5pct_fpr'])})"
+            pr_auc += f" ({_span(interval['pr_auc'], scale=1, digits=3)})"
+            ratio += f" ({_span(interval['fpr_ratio'], scale=1, digits=2)})"
         rows.append(
-            f"| {model} | {_pct(metrics['recall_at_5pct_fpr'])} "
-            f"| {_pct(metrics['recall_at_threshold'])} | {_pct(metrics['fpr_at_threshold'])} "
-            f"| {metrics['pr_auc']:.3f} | {metrics['fpr_ratio']:.2f} |"
+            f"| {model} | {recall} | {_pct(metrics['recall_at_threshold'])} "
+            f"| {_pct(metrics['fpr_at_threshold'])} | {pr_auc} | {ratio} |"
         )
     return "\n".join(rows) + "\n"
 
@@ -149,7 +186,15 @@ def _test_results(metadata: Metadata) -> str:
     return (
         f"Test Months {_months(metadata['training']['test_months'])}: "
         f"{_split_size(metadata, 'test')}. Each model uses its own Threshold, chosen on "
-        f"the Validation Month.\n\n" + _table(metadata, "test")
+        f"the Validation Month.\n\n"
+        + _table(metadata, "test")
+        + f"\nIn brackets: {metadata['bootstrap']['confidence']:.0%} intervals from a paired "
+        f"bootstrap of the Test Months' Applications "
+        f"({metadata['bootstrap']['n_resamples']:,} resamples, every model on the same ones). "
+        "Recall@5%FPR picks its own cut on each resample, as its definition says; the FPR "
+        "Ratio stays at each model's Threshold from the Validation Month. The intervals "
+        "cover sampling noise in these Applications, not drift to later Months or a refit "
+        "of the model.\n"
     )
 
 
@@ -193,7 +238,9 @@ def _discussion(metadata: Metadata) -> str:
         "- **LightGBM against logistic regression.** On the Test Months, at 5% FPR, "
         f"LightGBM flags {_pct(lgbm['recall_at_5pct_fpr'])} of Fraudulent Applications and "
         f"logistic regression {_pct(logreg['recall_at_5pct_fpr'])} "
-        f"({_points(lgbm['recall_at_5pct_fpr'], logreg['recall_at_5pct_fpr'])}); PR-AUC "
+        f"({_points(lgbm['recall_at_5pct_fpr'], logreg['recall_at_5pct_fpr'])}; the "
+        "difference's interval is "
+        f"{_difference(metadata, 'Logistic regression', 'recall_at_5pct_fpr')}); PR-AUC "
         f"is {lgbm['pr_auc']:.3f} against {logreg['pr_auc']:.3f}. A well-preprocessed "
         "linear model gets most of the way; the single-feature rule flags "
         f"{_pct(rule['recall_at_5pct_fpr'])}.\n"
@@ -214,7 +261,8 @@ def _discussion(metadata: Metadata) -> str:
 
 def _without_age(metadata: Metadata) -> str:
     served = _metrics(metadata, "LightGBM (served)", "test")
-    without_age = _metrics(metadata, "LightGBM without `customer_age` (experiment)", "test")
+    experiment = "LightGBM without `customer_age` (experiment)"
+    without_age = _metrics(metadata, experiment, "test")
     before, after = round(served["fpr_ratio"], 2), round(without_age["fpr_ratio"], 2)
     if after == before:
         ratio = f"leaves the FPR Ratio at {after:.2f}"
@@ -237,8 +285,11 @@ def _without_age(metadata: Metadata) -> str:
         f"{_points(without_age['recall_at_5pct_fpr'], served['recall_at_5pct_fpr'])} "
         f"(about {frauds} of {served['fraudulent_applications']:,} Fraudulent Applications) "
         f"and PR-AUC from {served['pr_auc']:.3f} to {without_age['pr_auc']:.3f}, and it "
-        f"{ratio}. That is one fit with one seed, with parameters tuned with age, so small "
-        "differences may be noise.\n"
+        f"{ratio}. Paired over the same bootstrap resamples, the change in Recall@5%FPR is "
+        f"{_difference(metadata, experiment, 'recall_at_5pct_fpr', flip=True)}; in PR-AUC, "
+        f"{_difference(metadata, experiment, 'pr_auc', flip=True)}; and in the FPR Ratio, "
+        f"{_difference(metadata, experiment, 'fpr_ratio', flip=True)}. That is still one fit "
+        "with one seed, with parameters tuned with age.\n"
     )
 
 

@@ -24,13 +24,19 @@ REQUIRED_METRICS = {"recall_at_5pct_fpr", "fpr_at_threshold", "pr_auc", "fpr_rat
 
 
 TRIALS = 3
+RESAMPLES = 50
 
 
 def train(data_path, output_dir, **kwargs):
     """The pipeline with a handful of trials and the reports next to the model."""
     kwargs.setdefault("expected_sha256", sha256(data_path))
     return train_pipeline(
-        data_path, output_dir, reports_dir=output_dir / "reports", n_trials=TRIALS, **kwargs
+        data_path,
+        output_dir,
+        reports_dir=output_dir / "reports",
+        n_trials=TRIALS,
+        n_resamples=RESAMPLES,
+        **kwargs,
     )
 
 
@@ -139,6 +145,23 @@ def test_lightgbm_without_age_is_reported_on_every_split_and_never_sees_age(trai
         assert split.keys() >= REQUIRED_METRICS
 
 
+def test_metadata_has_paired_bootstrap_intervals_for_every_model(trained):
+    bootstrap = model_version.load(trained).metadata["bootstrap"]
+
+    models = bootstrap["models"]
+    assert set(models) == {
+        "lightgbm",
+        "logistic_regression",
+        "credit_risk_score_rule",
+        "without_age",
+    }
+    for name, result in models.items():
+        assert set(result["interval"]) == {"recall_at_5pct_fpr", "pr_auc", "fpr_ratio"}, name
+        for low, high in result["interval"].values():
+            assert low <= high, name
+        assert ("difference" in result) == (name != bootstrap["reference"]), name
+
+
 @pytest.mark.parametrize(
     "path",
     [
@@ -176,10 +199,15 @@ def test_perturbing_test_month_labels_changes_neither_threshold_nor_model(traine
 
     assert perturbed.threshold == original.threshold
     assert perturbed.id == original.id
-    assert (
-        perturbed.metadata["experiments"]["without_age"]["threshold"]
-        == original.metadata["experiments"]["without_age"]["threshold"]
-    )
+    for path in [
+        ("experiments", "without_age"),
+        ("baselines", "logistic_regression"),
+        ("baselines", "credit_risk_score_rule"),
+    ]:
+        perturbed_model, original_model = perturbed.metadata, original.metadata
+        for key in path:
+            perturbed_model, original_model = perturbed_model[key], original_model[key]
+        assert perturbed_model["threshold"] == original_model["threshold"], path
 
 
 def test_same_seed_reproduces_the_model_version_id(trained, dataset_path, tmp_path):

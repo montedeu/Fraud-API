@@ -1,8 +1,10 @@
+import numpy as np
 import pytest
 
 from fraud_api.evaluation import (
     fpr_at,
     fpr_ratio,
+    paired_bootstrap,
     pr_auc,
     recall_at,
     recall_at_fpr,
@@ -170,3 +172,63 @@ class TestFprRatio:
     def test_needs_legitimate_applications_in_both_age_groups(self):
         with pytest.raises(ValueError):
             fpr_ratio([0, 0, 1], [0.1, 0.2, 0.9], [20, 30, 60], 0.5)
+
+
+class TestPairedBootstrap:
+    """Seam 3: the paired bootstrap over the Test Months."""
+
+    # 160 Legitimate Applications scored below every one of 40 Fraudulent ones, half of
+    # each Age Group: a perfect ranking, whatever the resample.
+    LABELS = [0] * 160 + [1] * 40
+    AGES = [30, 60] * 100
+    PERFECT = [i / 1000 for i in range(160)] + [0.9 + i / 1000 for i in range(40)]
+
+    @staticmethod
+    def _noisy(n=600, seed=7):
+        rng = np.random.default_rng(seed)
+        labels = (rng.random(n) < 0.15).astype(int)
+        ages = rng.choice([20, 30, 40, 50, 60, 70], size=n)
+        good = labels + rng.normal(0, 0.8, n)
+        weak = labels + rng.normal(0, 2.0, n)
+        return labels, ages, {"good": good, "weak": weak}
+
+    @staticmethod
+    def _bootstrap(labels, ages, scores, seed=0, thresholds=None):
+        thresholds = thresholds or {n: threshold_for_fpr(labels, s) for n, s in scores.items()}
+        return paired_bootstrap(
+            labels, ages, scores, thresholds, reference="good", n_resamples=200, seed=seed
+        )
+
+    def test_a_perfect_ranking_has_intervals_of_exactly_one(self):
+        # Every resample ranks every Fraudulent Application first, and a Threshold between
+        # the two classes flags no Legitimate one: each metric is 1 on every resample.
+        result = self._bootstrap(
+            self.LABELS, self.AGES, {"good": self.PERFECT}, thresholds={"good": 0.5}
+        )
+
+        intervals = result["good"]["interval"]
+        assert set(intervals) == {"recall_at_5pct_fpr", "pr_auc", "fpr_ratio"}
+        for interval in intervals.values():
+            assert interval == pytest.approx([1.0, 1.0], abs=1e-12)
+        assert "difference" not in result["good"]
+
+    def test_identical_scores_differ_by_exactly_zero(self):
+        labels, ages, scores = self._noisy()
+        copies = {"good": scores["good"], "copy": scores["good"].copy()}
+
+        result = self._bootstrap(labels, ages, copies)
+
+        assert all(interval == [0.0, 0.0] for interval in result["copy"]["difference"].values())
+
+    def test_the_same_seed_gives_the_same_intervals(self):
+        labels, ages, scores = self._noisy()
+
+        assert self._bootstrap(labels, ages, scores, 3) == self._bootstrap(labels, ages, scores, 3)
+        assert self._bootstrap(labels, ages, scores, 3) != self._bootstrap(labels, ages, scores, 4)
+
+    def test_a_clearly_better_model_has_a_difference_interval_above_zero(self):
+        labels, ages, scores = self._noisy()
+
+        low, _ = self._bootstrap(labels, ages, scores)["weak"]["difference"]["recall_at_5pct_fpr"]
+
+        assert low > 0
