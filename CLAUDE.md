@@ -1,5 +1,14 @@
 # fraud-api
 
+## Review
+
+- Reviewer subagents run with `isolation: "worktree"`, in their own checkout, so the working tree and branch stay where the implementer left them.
+- Reviewers apply `CODING_STANDARDS.md`.
+
+## Where numbers live
+
+Results come from `model/metadata.json`. Besides the README's generated blocks, they appear by hand in `notebooks/eda.ipynb` markdown, `docs/adr/`, and README prose; a change to results updates all of them (`CODING_STANDARDS.md`, "One source per number").
+
 ## Agent skills
 
 ### Issue tracker
