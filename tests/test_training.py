@@ -1,3 +1,4 @@
+import copy
 import json
 import shutil
 
@@ -334,3 +335,14 @@ def test_cli_defaults_match_the_pipeline():
         tuning.N_TRIALS,
         reports.REPORTS_DIR,
     )
+
+
+def test_metadata_with_an_undefined_metric_is_not_written(trained, tmp_path):
+    served = model_version.load(trained)
+    metadata = copy.deepcopy(served.metadata)
+    del metadata["model_version"]
+    metadata["metrics"]["test"]["precision_ratio"] = float("nan")
+
+    with pytest.raises(ValueError, match="NaN"):
+        model_version.write(tmp_path / "model", served.booster, metadata)
+    assert not (tmp_path / "model").exists()

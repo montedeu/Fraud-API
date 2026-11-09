@@ -109,13 +109,19 @@ def precision_ratio(
 
     1 means a Review carries the same fraud risk in both Age Groups, including when
     neither group has a Fraudulent Application flagged. NaN when an Age Group has no
-    Application flagged at all, since its precision is undefined.
+    Application flagged, since its precision is undefined; an error when it has no
+    Applications at all.
     """
     y, s = _validate(labels, scores)
     older = _older(customer_age, y)
     flagged = s >= threshold
     precisions = []
-    for group in (older, ~older):
+    for group, name in (
+        (older, f"aged {AGE_GROUP_BOUNDARY}+"),
+        (~older, f"under {AGE_GROUP_BOUNDARY}"),
+    ):
+        if not group.any():
+            raise ValueError(f"no Applications {name}")
         if not (flagged & group).any():
             return float("nan")
         precisions.append(float(np.mean(y[flagged & group])))

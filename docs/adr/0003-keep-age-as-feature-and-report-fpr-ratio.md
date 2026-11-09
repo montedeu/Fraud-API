@@ -13,8 +13,8 @@ On Model Version `lgbm-f5421b309a8c` (8 November 2026), the training pipeline fi
 
 ## The test that decides it
 
-The 8 November revisit kept age with no reason attached. On 10 November 2026 the developer set the goal age has to serve: a Review should carry the same fraud risk whatever the Applicant's age. That is the Precision Ratio, and the rule is to keep age if it brings the Precision Ratio closer to 1 than the model without it, and to drop age otherwise.
+The 8 November revisit kept age with no reason attached. On 10 November 2026 the developer chose the test: keep age if it brings the Precision Ratio closer to 1 than the model without it, otherwise drop it.
 
-Measured on the same Model Version (README, the paragraph after "What the numbers say"; `precision_ratio` in `model/metadata.json`): with age the Precision Ratio is higher than without it, and the paired bootstrap interval of the difference excludes zero. Age stays a feature.
+Measured on the same Model Version (README, the paragraph on the model without `customer_age`; `precision_ratio` in `model/metadata.json`): with age the Precision Ratio is higher than without it, and the paired bootstrap interval of the difference excludes zero. Age stays a feature.
 
-The cost is the FPR Ratio, which is lower with age: Legitimate Applicants in one Age Group are sent to Review more often. Fraud is more common among Applicants aged 50 or over, so no model short of a perfect one can make both ratios 1 together with equal recall; this project chooses an equal meaning of a Review over equal flag rates for Legitimate Applicants, and publishes both ratios.
+With age the FPR Ratio is lower (same README paragraph); the developer's test does not weigh it. Both ratios stay published.

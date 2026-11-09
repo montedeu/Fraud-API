@@ -86,7 +86,8 @@ def train(
     }
 
     # Same parameters and tree count as the served model, so the feature is the only
-    # difference. Its FPR Ratio is still measured on the Age Groups in the data.
+    # difference. Its FPR Ratio and Precision Ratio are still measured on the Age Groups
+    # in the data.
     without_age = lgb.train(
         tuned.params,
         lgb.Dataset(

@@ -201,6 +201,10 @@ class TestPrecisionRatio:
     def test_is_undefined_when_an_age_group_has_nothing_flagged(self):
         assert np.isnan(precision_ratio([1, 0], [0.9, 0.1], [60, 20], 0.5))
 
+    def test_needs_applications_in_both_age_groups(self):
+        with pytest.raises(ValueError, match="no Applications under 50"):
+            precision_ratio([1, 0], [0.9, 0.9], [60, 70], 0.5)
+
     def test_rejects_missing_ages(self):
         with pytest.raises(ValueError):
             precision_ratio([1, 0], [0.9, 0.9], [float("nan"), 60], 0.5)
