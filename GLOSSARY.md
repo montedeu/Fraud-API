@@ -87,6 +87,10 @@ _Avoid_: FPR disparity, bias, fairness score, predictive equality
 
 ## Serving
 
+**Client**:
+The network caller of the service, identified by its address, that the rate limit counts requests from. Not the Applicant: one Client may send many Applicants' Applications. "Request" and "rejected" here mean the HTTP request and its 429, not an Application or a Decision.
+_Avoid_: user, caller, consumer
+
 **Drift**:
 A change between the Applications the service scores and those of the Validation Month, the Month the Threshold was chosen on. It is measured per feature with the population stability index (PSI), and through the share of Applications sent to Review.
 _Avoid_: data shift, concept drift (the labels of live Applications are unknown)
