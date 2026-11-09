@@ -1,6 +1,6 @@
-# Keep age as a feature and report the FPR Ratio
+# Keep age as a feature and report the FPR Ratio and the Precision Ratio
 
-`customer_age` stays a model feature, and every evaluation reports the FPR Ratio between Age Groups next to Recall@5%FPR. Applicants aged 50 or over are almost three times as likely to submit a Fraudulent Application (2.21% against 0.75% in Months 0–5, EDA section 6), so the model is expected to flag their Legitimate Applications more often; the BAF authors report an FPR Ratio around 0.3 for their best models. We choose to measure and publish that disparity rather than hide it.
+`customer_age` stays a model feature, and every evaluation reports the FPR Ratio and the Precision Ratio between Age Groups next to Recall@5%FPR. Applicants aged 50 or over are almost three times as likely to submit a Fraudulent Application (2.21% against 0.75% in Months 0–5, EDA section 6), so the model is expected to flag their Legitimate Applications more often; the BAF authors report an FPR Ratio around 0.3 for their best models. We choose to measure and publish that disparity rather than hide it.
 
 ## Considered Options
 
@@ -10,3 +10,11 @@
 ## Measured
 
 On Model Version `lgbm-f5421b309a8c` (8 November 2026), the training pipeline fitted the same LightGBM without `customer_age` and reported it next to the served model (README, "What the numbers say"; `experiments.without_age` in `model/metadata.json`). That run contradicts half of the reasoning above. The gap between Age Groups narrowed but stayed wide, as expected. The recall cost, however, was a fraction of a point on the Test Months, within the noise of a single fit, rather than the clear loss this ADR assumed. Revisited by the developer the same day, with those numbers: age stays a feature, and the FPR Ratio stays reported.
+
+## The test that decides it
+
+The 8 November revisit kept age with no reason attached. On 10 November 2026 the developer chose the test: keep age if it brings the Precision Ratio closer to 1 than the model without it, otherwise drop it.
+
+Measured on the same Model Version (README, the paragraph on the model without `customer_age`; `precision_ratio` in `model/metadata.json`): with age the Precision Ratio is higher than without it, and the paired bootstrap interval of the difference excludes zero. Age stays a feature.
+
+With age the FPR Ratio is lower (same README paragraph); the developer's test does not weigh it. Both ratios stay published.

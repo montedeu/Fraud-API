@@ -1,3 +1,4 @@
+import copy
 import json
 import shutil
 
@@ -20,7 +21,13 @@ REQUIRED_METADATA = {
     "data_sha256",
     "reference_applications",
 }
-REQUIRED_METRICS = {"recall_at_5pct_fpr", "fpr_at_threshold", "pr_auc", "fpr_ratio"}
+REQUIRED_METRICS = {
+    "recall_at_5pct_fpr",
+    "fpr_at_threshold",
+    "pr_auc",
+    "fpr_ratio",
+    "precision_ratio",
+}
 
 
 TRIALS = 3
@@ -166,7 +173,7 @@ def test_metadata_has_paired_bootstrap_intervals_for_every_model(trained):
         "without_age",
     }
     for name, result in models.items():
-        assert set(result["interval"]) == {"recall_at_5pct_fpr", "pr_auc", "fpr_ratio"}, name
+        assert set(result["interval"]) == set(evaluation.BOOTSTRAP_METRICS), name
         for low, high in result["interval"].values():
             assert low <= high, name
         assert ("difference" in result) == (name != bootstrap["reference"]), name
@@ -328,3 +335,14 @@ def test_cli_defaults_match_the_pipeline():
         tuning.N_TRIALS,
         reports.REPORTS_DIR,
     )
+
+
+def test_metadata_with_an_undefined_metric_is_not_written(trained, tmp_path):
+    served = model_version.load(trained)
+    metadata = copy.deepcopy(served.metadata)
+    del metadata["model_version"]
+    metadata["metrics"]["test"]["precision_ratio"] = float("nan")
+
+    with pytest.raises(ValueError, match="NaN"):
+        model_version.write(tmp_path / "model", served.booster, metadata)
+    assert not (tmp_path / "model").exists()

@@ -85,6 +85,10 @@ _Avoid_: seniors, elderly, protected group
 The false positive rate of the Age Group with the lower rate divided by that of the Age Group with the higher rate. 1 means Legitimate Applications from both groups are flagged equally often; 0.3 means one group's are flagged about three times as often.
 _Avoid_: FPR disparity, bias, fairness score, predictive equality
 
+**Precision Ratio**:
+The share of flagged Applications that are Fraudulent in the Age Group with the lower share, divided by that share in the Age Group with the higher one. 1 means a Review carries the same fraud risk whichever Age Group the Applicant belongs to.
+_Avoid_: PPV parity, predictive parity, calibration
+
 ## Serving
 
 **Drift**:

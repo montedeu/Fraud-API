@@ -87,7 +87,7 @@ def _difference(metadata: Metadata, model: str, metric: str, *, flip: bool = Fal
     if flip:
         low, high = -high, -low
     verdict = "includes zero" if low <= 0 <= high else "excludes zero"
-    if metric != "recall_at_5pct_fpr":  # PR-AUC and the FPR Ratio aren't shares: no points
+    if metric != "recall_at_5pct_fpr":  # PR-AUC and the ratios aren't shares: no points
         return f"{low:+.3f} to {high:+.3f}, which {verdict}"
     return f"{low * 100:+.1f} to {high * 100:+.1f} points, which {verdict}"
 
@@ -104,22 +104,24 @@ def _fraud_rate(metadata: Metadata, split: str) -> float:
 def _table(metadata: Metadata, split: str) -> str:
     rows = [
         "| Model | Recall@5%FPR | Recall at the Threshold | FPR at the Threshold | PR-AUC "
-        "| FPR Ratio |",
-        "|---|---:|---:|---:|---:|---:|",
+        "| FPR Ratio | Precision Ratio |",
+        "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for model in _MODELS:
         metrics = _metrics(metadata, model, split)
         recall = _pct(metrics["recall_at_5pct_fpr"])
         pr_auc = f"{metrics['pr_auc']:.3f}"
         ratio = f"{metrics['fpr_ratio']:.2f}"
+        precision = f"{metrics['precision_ratio']:.2f}"
         if split == "test":  # the bootstrap covers the Test Months only
             interval = _bootstrap(metadata, model)["interval"]
             recall += f" ({_span(interval['recall_at_5pct_fpr'])})"
             pr_auc += f" ({_span(interval['pr_auc'], scale=1, digits=3)})"
             ratio += f" ({_span(interval['fpr_ratio'], scale=1, digits=2)})"
+            precision += f" ({_span(interval['precision_ratio'], scale=1, digits=2)})"
         rows.append(
             f"| {model} | {recall} | {_pct(metrics['recall_at_threshold'])} "
-            f"| {_pct(metrics['fpr_at_threshold'])} | {pr_auc} | {ratio} |"
+            f"| {_pct(metrics['fpr_at_threshold'])} | {pr_auc} | {ratio} | {precision} |"
         )
     return "\n".join(rows) + "\n"
 
@@ -192,7 +194,8 @@ def _test_results(metadata: Metadata) -> str:
         f"bootstrap of the Test Months' Applications "
         f"({metadata['bootstrap']['n_resamples']:,} resamples, every model on the same ones). "
         "Recall@5%FPR picks its own cut on each resample, as its definition says; the FPR "
-        "Ratio stays at each model's Threshold from the Validation Month. The intervals "
+        "Ratio and the Precision Ratio stay at each model's Threshold from the Validation "
+        "Month. The intervals "
         "cover sampling noise in these Applications, not drift to later Months or a refit "
         "of the model.\n"
     )
@@ -250,6 +253,12 @@ def _discussion(metadata: Metadata) -> str:
         f"the model learns it. The BAF authors report {BAF_REFERENCE_FPR_RATIO} for their "
         "best models; this model's FPR Ratio is published rather than hidden "
         "([ADR 0003](docs/adr/0003-keep-age-as-feature-and-report-fpr-ratio.md)).\n"
+        "- **Precision Ratio between Age Groups.** At the same Threshold, the Precision "
+        f"Ratio is {lgbm['precision_ratio']:.2f}: among flagged Applications, the share "
+        f"that is Fraudulent in one Age Group is {lgbm['precision_ratio']:.2f} times the "
+        "share in the other. The two ratios measure different things: how evenly "
+        "Legitimate Applications are sent to Review, and whether a Review means the same "
+        "fraud risk whatever the Applicant's age.\n"
         f"- **Drift between Months.** The share of Fraudulent Applications {trend} from "
         f"{_pct(rates[0])} in the Training Months and {_pct(rates[1])} in the Validation "
         f"Month to {_pct(rates[2])} in the Test Months. The Threshold chosen for 5% FPR on "
@@ -274,6 +283,15 @@ def _without_age(metadata: Metadata) -> str:
             f": one Age Group's Legitimate Applications are still flagged about "
             f"{1 / after:.1f} times as often as the other's"
         )
+    precision_before = round(served["precision_ratio"], 2)
+    precision_after = round(without_age["precision_ratio"], 2)
+    if precision_after == precision_before:
+        precision = f"leaves the Precision Ratio at {precision_after:.2f}"
+    else:
+        moved = "raises" if precision_after > precision_before else "lowers"
+        precision = (
+            f"{moved} the Precision Ratio from {precision_before:.2f} to {precision_after:.2f}"
+        )
     frauds = round(
         abs(without_age["recall_at_5pct_fpr"] - served["recall_at_5pct_fpr"])
         * served["fraudulent_applications"]
@@ -285,10 +303,13 @@ def _without_age(metadata: Metadata) -> str:
         f"{_points(without_age['recall_at_5pct_fpr'], served['recall_at_5pct_fpr'])} "
         f"(about {frauds} of {served['fraudulent_applications']:,} Fraudulent Applications) "
         f"and PR-AUC from {served['pr_auc']:.3f} to {without_age['pr_auc']:.3f}, and it "
-        f"{ratio}. Paired over the same bootstrap resamples, the change in Recall@5%FPR is "
+        f"{ratio}; it also {precision}. Paired over the same bootstrap resamples, the change "
+        "in Recall@5%FPR is "
         f"{_difference(metadata, experiment, 'recall_at_5pct_fpr', flip=True)}; in PR-AUC, "
-        f"{_difference(metadata, experiment, 'pr_auc', flip=True)}; and in the FPR Ratio, "
-        f"{_difference(metadata, experiment, 'fpr_ratio', flip=True)}. That is still one fit "
+        f"{_difference(metadata, experiment, 'pr_auc', flip=True)}; in the FPR Ratio, "
+        f"{_difference(metadata, experiment, 'fpr_ratio', flip=True)}; and in the Precision "
+        f"Ratio, {_difference(metadata, experiment, 'precision_ratio', flip=True)}. That is "
+        "still one fit "
         "with one seed, with parameters tuned with age.\n"
     )
 

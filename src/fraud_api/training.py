@@ -86,7 +86,8 @@ def train(
     }
 
     # Same parameters and tree count as the served model, so the feature is the only
-    # difference. Its FPR Ratio is still measured on the Age Groups in the data.
+    # difference. Its FPR Ratio and Precision Ratio are still measured on the Age Groups
+    # in the data.
     without_age = lgb.train(
         tuned.params,
         lgb.Dataset(
@@ -317,4 +318,5 @@ def _metrics(split: Dataset, scores: np.ndarray, threshold: float) -> dict[str, 
         "fpr_at_threshold": evaluation.fpr_at(labels, scores, threshold),
         "pr_auc": evaluation.pr_auc(labels, scores),
         "fpr_ratio": evaluation.fpr_ratio(labels, scores, ages, threshold),
+        "precision_ratio": evaluation.precision_ratio(labels, scores, ages, threshold),
     }

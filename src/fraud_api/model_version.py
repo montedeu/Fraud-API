@@ -101,12 +101,19 @@ def model_version_id(model_text: str, metadata: dict[str, Any]) -> str:
 
 
 def write(directory: Path, booster: lgb.Booster, metadata: dict[str, Any]) -> ModelVersion:
-    """Write the model file and its metadata, with the Model Version id filled in."""
+    """Write the model file and its metadata, with the Model Version id filled in.
+
+    Refuses metadata with an undefined (NaN) metric, so neither ``metadata.json`` nor
+    the README generated from it can carry one."""
     model_text = booster.model_to_string()
     metadata = {"model_version": model_version_id(model_text, metadata), **metadata}
+    try:
+        metadata_text = json.dumps(metadata, indent=2, allow_nan=False) + "\n"
+    except ValueError as error:
+        raise ValueError("metadata has an undefined (NaN) metric; nothing written") from error
     directory.mkdir(parents=True, exist_ok=True)
     (directory / MODEL_FILE).write_text(model_text)
-    (directory / METADATA_FILE).write_text(json.dumps(metadata, indent=2) + "\n")
+    (directory / METADATA_FILE).write_text(metadata_text)
     return load(directory)
 
 
