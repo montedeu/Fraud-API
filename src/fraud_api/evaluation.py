@@ -25,7 +25,7 @@ BOOTSTRAP_RESAMPLES = 1000
 """How many resamples of the Test Months the paired bootstrap draws."""
 CONFIDENCE = 0.95
 """Coverage of the bootstrap's percentile intervals."""
-BOOTSTRAP_METRICS = ("recall_at_5pct_fpr", "pr_auc", "fpr_ratio")
+BOOTSTRAP_METRICS = ("recall_at_5pct_fpr", "pr_auc", "fpr_ratio", "precision_ratio")
 """The metrics the paired bootstrap puts intervals on."""
 
 
@@ -91,18 +91,35 @@ def fpr_ratio(
     including when neither group has any flagged.
     """
     y, s = _validate(labels, scores)
-    age = np.asarray(customer_age, dtype=float)
-    if age.shape != y.shape:
-        raise ValueError("customer_age must have one value per Application")
-    if not np.isfinite(age).all():
-        raise ValueError("customer_age must be finite")
+    older = _older(customer_age, y)
     legitimate = y == 0
-    older = age >= AGE_GROUP_BOUNDARY
     rates = (
         _flag_rate(s[legitimate & older], threshold, f"Legitimate aged {AGE_GROUP_BOUNDARY}+"),
         _flag_rate(s[legitimate & ~older], threshold, f"Legitimate under {AGE_GROUP_BOUNDARY}"),
     )
     lower, higher = sorted(rates)
+    return 1.0 if higher == 0 else lower / higher
+
+
+def precision_ratio(
+    labels: ArrayLike, scores: ArrayLike, customer_age: ArrayLike, threshold: float
+) -> float:
+    """The lower Age Group's share of Fraudulent Applications among those flagged at
+    ``threshold``, divided by the higher one's.
+
+    1 means a Review carries the same fraud risk in both Age Groups, including when
+    neither group has a Fraudulent Application flagged. NaN when an Age Group has no
+    Application flagged at all, since its precision is undefined.
+    """
+    y, s = _validate(labels, scores)
+    older = _older(customer_age, y)
+    flagged = s >= threshold
+    precisions = []
+    for group in (older, ~older):
+        if not (flagged & group).any():
+            return float("nan")
+        precisions.append(float(np.mean(y[flagged & group])))
+    lower, higher = sorted(precisions)
     return 1.0 if higher == 0 else lower / higher
 
 
@@ -116,14 +133,15 @@ def paired_bootstrap(
     n_resamples: int = BOOTSTRAP_RESAMPLES,
     seed: int = 0,
 ) -> dict[str, dict[str, Any]]:
-    """Percentile intervals for Recall@5%FPR, PR-AUC and the FPR Ratio of every model, and
-    for the difference between ``reference`` and each other model.
+    """Percentile intervals for Recall@5%FPR, PR-AUC, the FPR Ratio and the Precision Ratio
+    of every model, and for the difference between ``reference`` and each other model.
 
     Applications are resampled with replacement, the same resamples for every model, so
     the differences are paired. Each model keeps its own fixed Threshold for the FPR
-    Ratio; Recall@5%FPR picks its own cut on each resample, by its definition. The
-    intervals cover sampling noise in these Applications only, not drift between Months
-    or a refit of the model. Returns
+    Ratio and the Precision Ratio; Recall@5%FPR picks its own cut on each resample, by
+    its definition. A resample where a metric is undefined (an Age Group with nothing
+    flagged) is left out of that metric's interval. The intervals cover sampling noise in
+    these Applications only, not drift between Months or a refit of the model. Returns
     ``{model: {"interval": {metric: [low, high]}, "difference": {...}}}``; the
     ``reference`` model has no ``difference``.
     """
@@ -145,12 +163,13 @@ def paired_bootstrap(
                     "recall_at_5pct_fpr": recall_at_fpr(ys, s[sample]),
                     "pr_auc": pr_auc(ys, s[sample]),
                     "fpr_ratio": fpr_ratio(ys, s[sample], ages, thresholds[name]),
+                    "precision_ratio": precision_ratio(ys, s[sample], ages, thresholds[name]),
                 }
             )
     tail = (1 - CONFIDENCE) / 2 * 100
 
     def interval(values: list[float]) -> list[float]:
-        low, high = np.percentile(values, [tail, 100 - tail])
+        low, high = np.nanpercentile(values, [tail, 100 - tail])
         return [float(low), float(high)]
 
     metrics = BOOTSTRAP_METRICS
@@ -177,6 +196,15 @@ def _validate(labels: ArrayLike, scores: ArrayLike) -> tuple[NDArray[np.int_], N
     if not np.isfinite(s).all():
         raise ValueError("scores must be finite")
     return y.astype(int), s
+
+
+def _older(customer_age: ArrayLike, labels: NDArray[np.int_]) -> NDArray[np.bool_]:
+    age = np.asarray(customer_age, dtype=float)
+    if age.shape != labels.shape:
+        raise ValueError("customer_age must have one value per Application")
+    if not np.isfinite(age).all():
+        raise ValueError("customer_age must be finite")
+    return age >= AGE_GROUP_BOUNDARY
 
 
 def _flag_rate(group_scores: NDArray[np.float64], threshold: float, group: str) -> float:

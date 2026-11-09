@@ -55,6 +55,23 @@ def test_the_without_age_wording_follows_the_numbers(served, without_age, wordin
     assert wording in readme.render(current, changed)
 
 
+@pytest.mark.parametrize(
+    ("served", "without_age", "wording"),
+    [
+        (0.84, 0.70, "lowers the Precision Ratio from 0.84 to 0.70"),
+        (0.70, 0.84, "raises the Precision Ratio from 0.70 to 0.84"),
+        (0.841, 0.838, "leaves the Precision Ratio at 0.84"),
+    ],
+)
+def test_the_without_age_precision_wording_follows_the_numbers(served, without_age, wording):
+    current = (ROOT / readme.README).read_text()
+    changed = copy.deepcopy(METADATA)
+    changed["metrics"]["test"]["precision_ratio"] = served
+    changed["experiments"]["without_age"]["metrics"]["test"]["precision_ratio"] = without_age
+
+    assert wording in readme.render(current, changed)
+
+
 def test_the_readme_example_is_what_the_api_answers():
     current = (ROOT / readme.README).read_text()
     shown = json.loads(current.split("```json\n", 1)[1].split("\n```", 1)[0])

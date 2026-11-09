@@ -317,4 +317,5 @@ def _metrics(split: Dataset, scores: np.ndarray, threshold: float) -> dict[str, 
         "fpr_at_threshold": evaluation.fpr_at(labels, scores, threshold),
         "pr_auc": evaluation.pr_auc(labels, scores),
         "fpr_ratio": evaluation.fpr_ratio(labels, scores, ages, threshold),
+        "precision_ratio": evaluation.precision_ratio(labels, scores, ages, threshold),
     }

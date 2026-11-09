@@ -6,6 +6,7 @@ from fraud_api.evaluation import (
     fpr_ratio,
     paired_bootstrap,
     pr_auc,
+    precision_ratio,
     recall_at,
     recall_at_fpr,
     threshold_for_fpr,
@@ -174,6 +175,37 @@ class TestFprRatio:
             fpr_ratio([0, 0, 1], [0.1, 0.2, 0.9], [20, 30, 60], 0.5)
 
 
+class TestPrecisionRatio:
+    def test_the_age_group_with_the_higher_precision_is_the_denominator(self):
+        # 50 or over: 3 flagged, 2 of them Fraudulent (2/3). Under 50: 3 flagged, 1 (1/3).
+        # Unflagged Applications never count, whatever their label.
+        labels = [1, 1, 0, 1, 1, 0, 0, 0, 1]
+        scores = [0.9, 0.8, 0.7, 0.1, 0.9, 0.8, 0.7, 0.1, 0.2]
+        ages = [60, 70, 80, 90, 20, 30, 40, 40, 30]
+
+        assert precision_ratio(labels, scores, ages, 0.5) == pytest.approx(0.5)
+
+    def test_age_50_belongs_to_the_older_group(self):
+        # Flagged: a Fraudulent Applicant aged 49 or 50, one Legitimate under 50, one
+        # Fraudulent and one Legitimate aged 60. At 49, under 50 is 1/2 and 50 or over 1/2;
+        # at 50, under 50 is 0/1 and 50 or over 2/3.
+        labels = [1, 0, 1, 0]
+        scores = [0.9, 0.9, 0.9, 0.9]
+
+        assert precision_ratio(labels, scores, [49, 30, 60, 60], 0.5) == 1.0
+        assert precision_ratio(labels, scores, [50, 30, 60, 60], 0.5) == 0.0
+
+    def test_no_fraudulent_application_flagged_in_either_group_counts_as_equal(self):
+        assert precision_ratio([0, 0, 1], [0.9, 0.9, 0.1], [20, 60, 30], 0.5) == 1.0
+
+    def test_is_undefined_when_an_age_group_has_nothing_flagged(self):
+        assert np.isnan(precision_ratio([1, 0], [0.9, 0.1], [60, 20], 0.5))
+
+    def test_rejects_missing_ages(self):
+        with pytest.raises(ValueError):
+            precision_ratio([1, 0], [0.9, 0.9], [float("nan"), 60], 0.5)
+
+
 class TestPairedBootstrap:
     """Seam 3: the paired bootstrap over the Test Months."""
 
@@ -207,7 +239,7 @@ class TestPairedBootstrap:
         )
 
         intervals = result["good"]["interval"]
-        assert set(intervals) == {"recall_at_5pct_fpr", "pr_auc", "fpr_ratio"}
+        assert set(intervals) == {"recall_at_5pct_fpr", "pr_auc", "fpr_ratio", "precision_ratio"}
         for interval in intervals.values():
             assert interval == pytest.approx([1.0, 1.0], abs=1e-12)
         assert "difference" not in result["good"]
