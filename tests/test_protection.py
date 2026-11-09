@@ -87,6 +87,24 @@ def test_the_limit_rolls_over_after_the_window():
     assert limiter.hit("a") is None
 
 
+def test_a_client_sending_faster_than_the_limit_still_gets_the_limit_in_every_window():
+    # Rejected requests must not count: a planted bug that recorded them passed every
+    # other test here, then rejected a steady stream forever after its first window.
+    now = [0.0]
+    limiter = RateLimiter(limit=60, window=60.0, clock=lambda: now[0])
+    allowed_per_window = [0] * 5
+
+    for tick in range(5 * 60 * 2):  # 2 requests per second for 5 windows
+        now[0] = tick / 2
+        retry_after = limiter.hit("a")
+        if retry_after is None:
+            allowed_per_window[int(now[0] // 60)] += 1
+        else:
+            assert retry_after > 0
+
+    assert allowed_per_window == [60] * 5
+
+
 def test_an_oversized_body_is_rejected_with_413(client):
     padded = EXAMPLE_APPLICATION | {"padding": "x" * 4000}
 
